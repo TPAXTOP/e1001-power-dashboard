@@ -182,7 +182,8 @@ static void test_weather_icons() {
   TEST_ASSERT_EQUAL(ICON_RAIN, weatherCodeToIcon(81));
   TEST_ASSERT_EQUAL(ICON_CLOUDY, weatherCodeToIcon(75));   // snow -> cloudy
   TEST_ASSERT_EQUAL(ICON_RAIN, weatherCodeToIcon(95));
-  TEST_ASSERT_EQUAL(ICON_CLOUDY, weatherCodeToIcon(123));  // unknown
+  TEST_ASSERT_EQUAL(ICON_RAIN, weatherCodeToIcon(123));  // >= 95 is rain (web parity)
+  TEST_ASSERT_EQUAL(ICON_CLOUDY, weatherCodeToIcon(49));  // unknown -> cloudy
 }
 
 static void test_describe_weather() {
