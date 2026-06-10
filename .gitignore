@@ -1,0 +1,6 @@
+.pio/
+.vscode/
+*.bin
+!certs/*.pem
+__pycache__/
+release/
