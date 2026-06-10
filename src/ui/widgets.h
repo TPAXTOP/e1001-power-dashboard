@@ -5,6 +5,7 @@
 #pragma once
 
 #include <data_model.h>
+#include <derive.h>
 #include <stdint.h>
 
 namespace widgets {

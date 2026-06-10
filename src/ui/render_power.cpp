@@ -147,7 +147,7 @@ static void renderBackup(const PowerView& v) {
     time_t t = b.lastUpdateEpoch;
     struct tm local;
     localtime_r(&t, &local);
-    char ts[40];
+    char ts[72];
     snprintf(ts, sizeof(ts), "Updated: %02d/%02d/%04d %02d:%02d", local.tm_mday,
              local.tm_mon + 1, local.tm_year + 1900, local.tm_hour, local.tm_min);
     printRight(u8g2_font_6x10_tf, ts, 784, 180);
