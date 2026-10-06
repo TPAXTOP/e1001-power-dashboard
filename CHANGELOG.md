@@ -7,6 +7,8 @@ newest published (non-pre)release; see [docs/RELEASING.md](docs/RELEASING.md).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-07
+
 ### Added
 - Signed over-the-air updates. CI builds every release from its git tag. The
   device installs an image only when its SHA-256 matches the manifest and the
@@ -84,7 +86,8 @@ Bring-up fixes from the first flash on real hardware:
   - provisioning and maintenance web portal
   - manual and pull OTA
 
-[Unreleased]: https://github.com/TPAXTOP/e1001-power-dashboard/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/TPAXTOP/e1001-power-dashboard/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/TPAXTOP/e1001-power-dashboard/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/TPAXTOP/e1001-power-dashboard/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/TPAXTOP/e1001-power-dashboard/compare/v0.1.0...v0.1.2
 [0.1.0]: https://github.com/TPAXTOP/e1001-power-dashboard/releases/tag/v0.1.0
