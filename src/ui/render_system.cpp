@@ -12,14 +12,14 @@ static U8G2_FOR_ADAFRUIT_GFX& f() { return display::u8g2(); }
 
 static void title(const char* text) {
   display::clear();
-  f().setFont(u8g2_font_helvB12_tf);
+  display::setFont(u8g2_font_helvB12_tf);
   f().setCursor(60, 80);
   f().print(text);
   display::gfx().fillRect(60, 96, 680, 2, GxEPD_BLACK);
 }
 
 static void line(int n, const char* text) {
-  f().setFont(u8g2_font_helvB10_tf);
+  display::setFont(u8g2_font_helvB10_tf);
   f().setCursor(60, 140 + n * 36);
   f().print(text);
 }
@@ -36,13 +36,22 @@ void renderSetup(const char* apSsid, const char* apPass, const char* ip) {
   line(5, "The dashboard will start automatically after setup.");
 }
 
-void renderMaintenance(const char* ip) {
+void renderMaintenance(const char* ip, const char* apSsid, const char* apPass) {
   title("MAINTENANCE MODE");
   char buf[96];
+  int n = 0;
+  if (apSsid) {
+    // Home WiFi was unreachable (e.g. wrong password): we are our own AP.
+    line(n++, "Home WiFi not reachable - connect to this WiFi instead:");
+    snprintf(buf, sizeof(buf), "      network: %s     password: %s", apSsid, apPass);
+    line(n++, buf);
+  }
   snprintf(buf, sizeof(buf), "Settings & firmware update: http://%s", ip);
-  line(0, buf);
-  line(2, "The device returns to normal operation after 10 minutes");
-  line(3, "of inactivity, or via 'Save & Reboot' in the portal.");
+  line(n++, buf);
+  if (!apSsid) line(n++, "(or http://eink.local)");
+  n++;
+  line(n++, "The device returns to normal operation after 10 minutes");
+  line(n++, "of inactivity, or via 'Save & Reboot' in the portal.");
 }
 
 void renderBatteryEmpty(float vbat) {

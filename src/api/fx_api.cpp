@@ -12,10 +12,12 @@
 namespace fx_api {
 
 static void epochToIsoDate(uint32_t epoch, char* buf, int bufLen) {
+  // Kyiv calendar date (TZ is set by time_sync), like every other date shown.
   time_t t = epoch;
-  struct tm utc;
-  gmtime_r(&t, &utc);
-  snprintf(buf, bufLen, "%04d-%02d-%02d", utc.tm_year + 1900, utc.tm_mon + 1, utc.tm_mday);
+  struct tm local;
+  localtime_r(&t, &local);
+  snprintf(buf, bufLen, "%04d-%02d-%02d", local.tm_year + 1900, local.tm_mon + 1,
+           local.tm_mday);
 }
 
 bool fetch(const Config& cfg, dash::FxData& out) {

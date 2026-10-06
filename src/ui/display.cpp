@@ -22,12 +22,20 @@ void begin() {
   fonts.begin(epd);
   fonts.setFontMode(1);  // transparent backgrounds
   fonts.setForegroundColor(GxEPD_BLACK);
+  // Only used if solid mode ever slips back in; white is the less harmful
+  // failure than the library's default 0 (= black boxes).
+  fonts.setBackgroundColor(GxEPD_WHITE);
   inited = true;
 }
 
 Adafruit_GFX& gfx() { return epd; }
 
 U8G2_FOR_ADAFRUIT_GFX& u8g2() { return fonts; }
+
+void setFont(const uint8_t* font) {
+  fonts.setFont(font);   // resets is_transparent to 0 when the font changes
+  fonts.setFontMode(1);
+}
 
 void clear() {
   epd.setFullWindow();

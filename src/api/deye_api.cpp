@@ -28,6 +28,22 @@ static bool keyMatches(const char* key, const char* const* candidates, int count
   return false;
 }
 
+// Deye returns most numbers as JSON strings ("95", "1728248400") but not
+// consistently; accept both like the web app's parseFloat()/`* 1000` does.
+static bool numberFrom(JsonVariantConst v, double& out) {
+  if (v.is<const char*>()) {
+    const char* s = v.as<const char*>();
+    char* end = nullptr;
+    out = strtod(s, &end);
+    return end != s;
+  }
+  if (v.is<double>()) {
+    out = v.as<double>();
+    return true;
+  }
+  return false;
+}
+
 static bool apiSuccess(const JsonDocument& doc) {
   return (doc["success"] | false) && strcmp(doc["code"] | "", "1000000") == 0;
 }
@@ -99,28 +115,29 @@ static bool fetchLatest(const Config& cfg, PersistedState& st, dash::BackupData&
 
   for (JsonObjectConst item : device["dataList"].as<JsonArrayConst>()) {
     const char* key = item["key"];
-    const char* value = item["value"];
-    if (!key || !value) continue;
+    double value;
+    if (!key || !numberFrom(item["value"], value)) continue;
     String lower(key);
     lower.toLowerCase();
 
     if (lower == "soc") {
-      out.batteryPercent = atof(value);
+      out.batteryPercent = value;
     } else if (lower.indexOf("gridvoltage") >= 0) {
-      if (atof(value) > 100.0f) out.gridConnected = true;
+      if (value > 100.0) out.gridConnected = true;
     }
     if (!out.hasBatteryPower && keyMatches(key, kBatteryPowerKeys, 4)) {
-      out.batteryPowerWatts = atof(value);
+      out.batteryPowerWatts = value;
       out.hasBatteryPower = true;
     }
     if (!out.hasLoadPower && keyMatches(key, kLoadPowerKeys, 5)) {
-      out.loadPowerWatts = atof(value);
+      out.loadPowerWatts = value;
       out.hasLoadPower = true;
     }
   }
 
-  uint32_t collectionTime = device["collectionTime"] | 0;
-  out.lastUpdateEpoch = collectionTime ? collectionTime : time_sync::nowEpoch();
+  double collectionTime = 0;
+  numberFrom(device["collectionTime"], collectionTime);
+  out.lastUpdateEpoch = collectionTime > 0 ? (uint32_t)collectionTime : time_sync::nowEpoch();
   return true;
 }
 
@@ -144,22 +161,33 @@ static bool fetchHistory(const Config& cfg, PersistedState& st, dash::BackupData
     return false;
   }
 
+  JsonArrayConst list = doc["dataList"].as<JsonArrayConst>();
   std::vector<dash::BatteryPoint> points;
   points.reserve(512);
-  for (JsonObjectConst item : doc["dataList"].as<JsonArrayConst>()) {
-    uint32_t t = item["time"] | 0;
-    if (!t) continue;
+  for (JsonObjectConst item : list) {
+    double t;
+    if (!numberFrom(item["time"], t) || t <= 0) continue;
     for (JsonObjectConst dp : item["itemList"].as<JsonArrayConst>()) {
       const char* key = dp["key"];
-      const char* value = dp["value"];
-      if (!key || !value) continue;
+      double value;
+      if (!key || !numberFrom(dp["value"], value)) continue;
       String lower(key);
       lower.toLowerCase();
       if (lower.indexOf("soc") >= 0) {
-        points.push_back({t, (float)atof(value)});
+        points.push_back({(uint32_t)t, (float)value});
         break;  // first SOC value per timestamp only
       }
     }
+  }
+
+  if (points.empty()) {
+    // Diagnose unexpected payload shapes instead of silently drawing nothing.
+    String sample;
+    if (list.size()) serializeJson(list[0], sample);
+    else serializeJson(doc, sample);
+    if (sample.length() > 300) sample = sample.substring(0, 300) + "...";
+    LOGW("deye", "history: no SOC points in %u entries (window %lu-%lu): %s",
+         (unsigned)list.size(), (unsigned long)startTs, (unsigned long)endTs, sample.c_str());
   }
 
   std::sort(points.begin(), points.end(),

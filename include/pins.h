@@ -24,6 +24,9 @@
 #define LED_GREEN_PIN 6   // active low
 #define BUZZER_PIN 45     // passive piezo, LEDC PWM
 
-// Battery voltage through a 1:2 divider
+// Battery voltage through a 1:2 divider. The divider is only connected while
+// BAT_EN_PIN is driven high (Seeed wiki: "turn on the battery enable output
+// before reading GPIO1").
 #define BAT_ADC_PIN 1
+#define BAT_EN_PIN 21
 #define BAT_DIVIDER 2.0f

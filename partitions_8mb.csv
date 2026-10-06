@@ -1,0 +1,9 @@
+# Name,    Type, SubType,  Offset,    Size
+# Kept inside 8MB on purpose: the E1001 has 32MB flash, but the prebuilt
+# Arduino core is configured for <=16MB quad flash (no 32-bit addressing) and
+# Seeed's own Arduino guide selects "Flash 8MB". Firmware is ~1.5MB.
+nvs,       data, nvs,      0x9000,    0x20000
+otadata,   data, ota,      0x29000,   0x2000
+app0,      app,  ota_0,    0x30000,   0x300000
+app1,      app,  ota_1,    0x330000,  0x300000
+coredump,  data, coredump, 0x630000,  0x10000

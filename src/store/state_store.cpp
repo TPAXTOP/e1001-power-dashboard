@@ -52,7 +52,7 @@ void save(const PersistedState& st) {
 bool loadBlob(Source src, void* out, size_t size) {
   Preferences p;
   p.begin(kCacheNs, true);
-  size_t stored = p.getBytesLength(kBlobKeys[src]);
+  size_t stored = p.isKey(kBlobKeys[src]) ? p.getBytesLength(kBlobKeys[src]) : 0;
   if (stored != sizeof(BlobHeader) + size) {
     p.end();
     return false;
@@ -83,7 +83,7 @@ void saveBlob(Source src, const void* data, size_t size) {
   p.begin(kCacheNs, false);
 
   // Skip the erase+write cycle when content is unchanged.
-  size_t stored = p.getBytesLength(kBlobKeys[src]);
+  size_t stored = p.isKey(kBlobKeys[src]) ? p.getBytesLength(kBlobKeys[src]) : 0;
   if (stored == sizeof(hdr) + size) {
     BlobHeader oldHdr;
     p.getBytes(kBlobKeys[src], &oldHdr, sizeof(oldHdr));

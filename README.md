@@ -27,46 +27,39 @@ back to the last-known-good data cached in NVS, marked with a "!" badge.
 | `src/ui/` | GxEPD2 display, widgets/icons, screen renderers |
 | `include/pins.h` | E1001 pin map (EPD SPI 7/9/10/11/12/13, I2C 19/20, buttons 3/4/5) |
 | `certs/roots.pem` | Curated root CAs embedded for TLS (see scripts/make_roots.py) |
-| `test/test_derive/` | Host unit tests (`pio test -e native`) |
+| `test/test_derive/` | Host unit tests (`python -m platformio test -e native`) |
 
-## Building & first flash (USB)
+## Install
 
-Requires [PlatformIO](https://platformio.org) (`pip install platformio`).
+**New to this? Follow [INSTALL.md](INSTALL.md)**. It is a step-by-step guide covering the USB driver, waking the
+device for flashing, a factory backup, the first flash, the setup portal (with a field-by-field mapping from the web
+dashboard's `.env.local`), and troubleshooting.
 
-```bash
-pio run -e e1001                 # build
-pio run -e e1001 -t upload       # first flash over USB-C
-pio device monitor               # 115200 baud serial log
+Short version, for when you already know the drill (PlatformIO is not on PATH here, so use `python -m platformio`):
+
+```powershell
+python -m platformio run -e e1001                 # build
+python -m platformio run -e e1001 -t erase        # FIRST flash only (wipes factory data)
+python -m platformio run -e e1001 -t upload       # press the green button first: no flashing while asleep
+python -m platformio device monitor               # 115200 baud serial log
 ```
 
-> If the device boot-loops immediately after flashing, the PSRAM/flash mode
-> guess is wrong: change `board_build.arduino.memory_type` in `platformio.ini`
-> (`qio_opi` -> `opi_opi` or `qio_qspi`) and rebuild.
-
-## First-time setup (no secrets in the repo)
-
-1. Flash and power on. With no WiFi credentials stored, the screen shows
-   **FIRST TIME SETUP** with an access-point name/password.
-2. Join the `EINK-SETUP-xxxx` WiFi from a phone, open `http://192.168.4.1`.
-3. Enter WiFi credentials, Yasno group (1.1–6.2), Deye developer credentials
-   (App ID/Secret, email, password — stored only as SHA256, device SN,
-   battery Wh), exchangerate.host key, intervals. **Save & Reboot.**
-
-All of these are stored in NVS and survive firmware updates. To change them
-later: **hold the green (top) button ~1.5 s** while the device is asleep — it
-wakes into **maintenance mode** and serves the same form on your home WiFi
-(`http://eink.local` or the IP shown on screen).
+After the first flash, the screen shows **FIRST TIME SETUP**. Join the `EINK-SETUP-xxxx` WiFi it shows, open
+`http://192.168.4.1`, and enter your WiFi (2.4 GHz), Yasno group, Deye and exchangerate.host credentials. Every
+setting lives in NVS and survives firmware updates. To change settings later, **hold the green button ~1.5 s**. The
+device then wakes into **maintenance mode** and serves the same form on your home WiFi (`http://eink.local` or the IP
+shown on screen). If home WiFi is unreachable, it opens its own access point and shows its credentials on screen.
 
 ## Updating over WiFi
 
 Two mechanisms, no USB cable required:
 
-- **Manual:** maintenance mode → *Firmware update* → upload `firmware.bin`.
+- **Manual:** maintenance mode → *Firmware update* → upload `.pio/build/e1001/firmware.bin`.
 - **Automatic (pull OTA):** publish a release and set its manifest URL in the
   portal. The device checks every ~12 h and updates itself:
 
   ```bash
-  pio run -e e1001
+  python -m platformio run -e e1001
   python scripts/gen_version.py https://github.com/<user>/<repo>/releases/download/v0.2.0
   # upload release/firmware.bin + release/version.json to the GitHub release,
   # point "OTA manifest URL" at .../releases/latest/download/version.json
@@ -87,8 +80,9 @@ Two mechanisms, no USB cable required:
 
 ## Tests
 
-```bash
-pio test -e native    # derive-logic unit tests (needs host gcc/g++)
+```powershell
+$env:PATH = "$env:LOCALAPPDATA\mingw-portable\mingw64\bin;$env:PATH"   # host gcc
+python -m platformio test -e native    # derive-logic unit tests
 ```
 
 ## TLS root store

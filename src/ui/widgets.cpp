@@ -235,7 +235,7 @@ void drawOutageTile(int x, int y, int w, int h, const dash::HourlyOutage& ho, bo
   snprintf(label, sizeof(label), "%02d", ho.hour);
 
   U8G2_FOR_ADAFRUIT_GFX& f = display::u8g2();
-  f.setFont(u8g2_font_helvB08_tf);
+  display::setFont(u8g2_font_helvB08_tf);
   int textW = f.getUTF8Width(label);
   int cx = x + w / 2;
   uint16_t color = GxEPD_BLACK;
@@ -265,7 +265,7 @@ void drawBatteryGraph(int x, int y, const dash::BatteryPoint* points, int count)
   const int baselineY = y + padTop + graphH;
 
   U8G2_FOR_ADAFRUIT_GFX& f = display::u8g2();
-  f.setFont(u8g2_font_helvB08_tf);
+  display::setFont(u8g2_font_helvB08_tf);
 
   // Y labels
   const char* yLabels[3] = {"100%", "50%", "0%"};
@@ -296,7 +296,7 @@ void drawBatteryGraph(int x, int y, const dash::BatteryPoint* points, int count)
 
   // X ticks at 3-hour boundaries from actual timestamps (Kyiv local hours)
   int lastLabelHour = -1;
-  f.setFont(u8g2_font_6x10_tf);
+  display::setFont(u8g2_font_6x10_tf);
   for (int i = 0; i < count; i++) {
     time_t t = points[i].epoch;
     struct tm local;
@@ -326,7 +326,7 @@ void drawStaleBadge(int x, int yCenter) {
   int r = 8;
   g().fillCircle(x + r, yCenter, r, GxEPD_BLACK);
   U8G2_FOR_ADAFRUIT_GFX& f = display::u8g2();
-  f.setFont(u8g2_font_helvB10_tf);
+  display::setFont(u8g2_font_helvB10_tf);
   f.setForegroundColor(GxEPD_WHITE);
   int tw = f.getUTF8Width("!");
   f.setCursor(x + r - tw / 2, yCenter + 5);

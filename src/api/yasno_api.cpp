@@ -33,7 +33,8 @@ static void parseDay(JsonObjectConst day, dash::OutageDay& out) {
   out.slotCount = n;
 }
 
-bool fetch(const Config& cfg, dash::OutageSchedule& out) {
+bool fetch(const Config& cfg, dash::OutageSchedule& out, FetchError* error) {
+  if (error) *error = ERR_REQUEST;
   JsonDocument filter;
   filter[cfg.yasnoGroup] = true;  // whole subtree of our group only
 
@@ -42,7 +43,10 @@ bool fetch(const Config& cfg, dash::OutageSchedule& out) {
 
   JsonObjectConst group = doc[cfg.yasnoGroup];
   if (group.isNull()) {
+    // Yasno renumbers groups from time to time (Kyiv went from 1.1-6.2 to
+    // 1.1-60.1); a stale group must show up as an error, not as "no outages".
     LOGE("yasno", "group %s not in response", cfg.yasnoGroup.c_str());
+    if (error) *error = ERR_GROUP_MISSING;
     return false;
   }
 
@@ -51,6 +55,7 @@ bool fetch(const Config& cfg, dash::OutageSchedule& out) {
   parseDay(group["tomorrow"], out.tomorrow);
   strlcpy(out.groupId, cfg.yasnoGroup.c_str(), sizeof(out.groupId));
   strlcpy(out.updatedOn, group["updatedOn"] | "", sizeof(out.updatedOn));
+  if (error) *error = ERR_NONE;
 
   LOGI("yasno", "ok: today[%s %s %d slots] tomorrow[%s %s %d slots]",
        out.today.present ? out.today.date : "-", out.today.status, out.today.slotCount,

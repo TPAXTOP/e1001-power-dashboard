@@ -47,18 +47,25 @@ Key invariants:
 - **Stale-data UX**: fetch failure → render NVS-cached blob + "!" badge (`acquire()` in wake_cycle.cpp). Cache must survive power loss → NVS, never RTC RAM.
 - **Per-source max-age** decouples fetch cadence from wake cadence (outage/backup 5 min, weather 30 min, fx 12 h — all NVS-configurable).
 - **Times are Europe/Kyiv** via POSIX TZ `EET-2EEST,M3.5.0/3,M10.5.0/4`. Open-Meteo returns Kyiv-local strings — compare/slice them directly, no conversion (same as the web app).
+- **Yasno groups are renumbered from time to time** (Kyiv: `1.1–6.2` became `1.1–60.1` in Oct 2026). The group is NVS config, never hardcoded. A missing group must render the "NO OUTAGE DATA" notice (`outageError` in `PowerView`): blank tiles would read as "no outages". A cache blob whose `groupId` differs from the config is never shown.
 - Bump `dash::kCacheVersion` when any struct in `data_model.h` changes layout — old NVS blobs are then discarded instead of misread.
 - Secrets never go in code or git; they live in NVS, entered via the portal. Deye password is stored as SHA256 only.
 
 ## Hardware (include/pins.h)
 
-EPD SPI: SCK 7, MOSI 9, CS 10, DC 11, RST 12, BUSY 13 (HSPI, `GxEPD2_750_GDEY075T7`). I2C 19/20: SHT4x 0x44, PCF8563 RTC 0x51, SY6974B charger 0x6A. Buttons 3 (green) / 4 / 5, active-low, RTC-capable (ext1 ANY_LOW wake). LED 6 active-low, buzzer 45, battery ADC GPIO1 with 1:2 divider.
+EPD SPI: SCK 7, MOSI 9, CS 10, DC 11, RST 12, BUSY 13 (HSPI, `GxEPD2_750_GDEY075T7`). I2C 19/20: SHT4x 0x44, PCF8563 RTC 0x51 (charger chip/address unknown; see Gotchas). Buttons 3 (green) / 4 / 5, active-low, RTC-capable (ext1 ANY_LOW wake). LED 6 active-low, buzzer 45, battery ADC GPIO1 with 1:2 divider. **The divider is switched by GPIO21** (`BAT_EN_PIN`, high = on), so the ADC reads garbage unless it is enabled. `batteryVolts()` returns 0 ("unknown") outside 2.5–4.5 V so a bad read can never trigger "battery empty" sleep. USB-C goes through a CH340 USB-UART bridge, so `Serial` = UART0 and CDC-on-boot must stay off.
 
 ## Gotchas / current state
 
-- **Never flashed to real hardware yet.** Untested risks: `board_build.arduino.memory_type = qio_opi` (boot-loop → try `opi_opi` or `qio_qspi`), Yasno CDN possibly blocking non-browser clients (browser-like UA is already set), Deye TLS chain.
+- **First flashed on real hardware 2026-10-06.** Confirmed: `qio_opi` boots, display/fonts, WiFi, Yasno, Deye latest, battery ADC (~4.0 V). Still unconfirmed: Deye SOC history parsing, USB detection. The TLS chains of all hosts were verified against `certs/roots.pem` with openssl in Oct 2026.
+- Flash layout uses only 8MB (`partitions_8mb.csv`, `board_upload.flash_size = 8MB`), although the chip has 32MB. The prebuilt core is configured for ≤16MB quad flash with coredump-to-flash, and Seeed's guide selects 8MB. Don't place partitions above 16MB.
+- The device can't be flashed over USB while it is in deep sleep. Press green first (or hold it for maintenance mode). The newcomer install flow lives in `INSTALL.md`; keep it in sync with portal/behavior changes.
 - Platform is pinned (`pioarduino` 55.03.31 = Arduino core 3.3.1 / IDF 5.5). Don't float it; bump deliberately.
+- Time: the RTC holds UTC, but other firmware (factory SenseCraft) leaves **local** time in it. Every cold boot forces SNTP, and `syncSntp()` waits for `sntp_get_sync_status() == COMPLETED`, never for "time looks valid" (the RTC time always does, which hid a 3 h offset on first flash).
+- USB detection: there is **no charger at 0x6A** on real hardware, so `usbPresent()` is always false and "stay awake on USB" is inert. The cold-boot log line `I2C devices:` lists what actually responds, for finding the real charger.
+- Deye returns numbers as JSON strings, not consistently, so parse via `numberFrom()` in deye_api.cpp, never `| 0` or `const char*` alone.
+- Fonts: always call `display::setFont()`, never `u8g2().setFont()`. U8g2_for_Adafruit_GFX resets to solid-background mode on every font change, and its default background is 0 (black), so text renders as black boxes (seen on the first real flash).
 - 1-bit display only: no grey — use the dither helpers in `widgets.cpp` (web CSS `#999` ≙ 50% checker).
 - TLS: if a host rotates to an uncovered root CA (serial shows TLS errors), regenerate `certs/roots.pem` — see README "TLS root store" (scripts/make_roots.py + check_roots.ps1).
-- OTA has no bootloader rollback yet (prebuilt Arduino core): a boot-looping OTA image needs USB recovery. App-level `otaPendingVerify` flag exists; enabling real rollback via pioarduino `custom_sdkconfig` is a known future task.
+- OTA has no effective rollback yet: a boot-looping OTA image needs USB recovery. The prebuilt core *does* have `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE`, but Arduino's weak `verifyRollbackLater()` returns false, so every image is marked valid at boot. Future task: override it and mark the image valid on every boot path (wake cycle, maintenance, provisioning), not only after a render, otherwise a deep-sleep or portal reboot would roll back a good image. The app-level `otaPendingVerify` flag exists.
 - Memory: one TLS connection at a time only; large JSON bodies go through `http.getString()` (>16KB allocs land in PSRAM automatically); never add concurrent fetches.

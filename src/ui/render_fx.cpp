@@ -18,14 +18,14 @@ static U8G2_FOR_ADAFRUIT_GFX& f() { return display::u8g2(); }
 void render(bool hasFx, bool stale, const dash::FxData& fx) {
   display::clear();
 
-  f().setFont(u8g2_font_helvB12_tf);
+  display::setFont(u8g2_font_helvB12_tf);
   f().setCursor(40, 44);
   f().print("USD / UAH - 30 days");
   if (stale) widgets::drawStaleBadge(f().getCursorX() + 8, 38);
   g().fillRect(40, 56, 720, 2, GxEPD_BLACK);
 
   if (!hasFx || fx.count < 2) {
-    f().setFont(u8g2_font_helvB10_tf);
+    display::setFont(u8g2_font_helvB10_tf);
     f().setCursor(40, 120);
     f().print("No data");
     return;
@@ -36,12 +36,12 @@ void render(bool hasFx, bool stale, const dash::FxData& fx) {
   float values[3] = {fx.latest.value, fx.minValue, fx.maxValue};
   for (int i = 0; i < 3; i++) {
     int x = 40 + i * 250;
-    f().setFont(u8g2_font_helvB10_tf);
+    display::setFont(u8g2_font_helvB10_tf);
     f().setCursor(x, 92);
     f().print(labels[i]);
     char buf[16];
     snprintf(buf, sizeof(buf), "%.2f", values[i]);
-    f().setFont(u8g2_font_logisoso22_tf);
+    display::setFont(u8g2_font_logisoso22_tf);
     f().setCursor(x, 130);
     f().print(buf);
   }
@@ -62,7 +62,7 @@ void render(bool hasFx, bool stale, const dash::FxData& fx) {
   };
 
   // Y labels + dashed grid at min/mid/max
-  f().setFont(u8g2_font_helvB08_tf);
+  display::setFont(u8g2_font_helvB08_tf);
   float yVals[3] = {hi, (hi + lo) / 2, lo};
   for (int i = 0; i < 3; i++) {
     char buf[16];
@@ -80,7 +80,7 @@ void render(bool hasFx, bool stale, const dash::FxData& fx) {
 
   // X labels: ~6 date ticks "MM-DD"
   int step = std::max(1, (int)fx.count / 6);
-  f().setFont(u8g2_font_6x10_tf);
+  display::setFont(u8g2_font_6x10_tf);
   for (int i = 0; i < fx.count; i += step) {
     const char* d = fx.points[i].date;  // "YYYY-MM-DD"
     if (strlen(d) >= 10) {

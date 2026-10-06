@@ -13,6 +13,8 @@ struct PowerView {
   bool hasOutage = false;
   bool outageStale = false;
   dash::OutageSchedule outage;
+  char outageGroup[8] = "";   // configured group, always shown in the header
+  char outageError[48] = "";  // why there is no outage data (shown when !hasOutage)
 
   bool hasBackup = false;
   bool backupStale = false;

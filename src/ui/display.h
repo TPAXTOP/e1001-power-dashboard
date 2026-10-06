@@ -12,6 +12,10 @@ namespace display {
 void begin();                 // SPI + panel init; safe to call once per wake
 Adafruit_GFX& gfx();          // draw target (buffer), GxEPD_BLACK/GxEPD_WHITE
 U8G2_FOR_ADAFRUIT_GFX& u8g2();  // font renderer bound to gfx()
+// Always use this instead of u8g2().setFont(): the library silently resets
+// to solid-background mode on every font change, and with its default
+// (black) background each glyph renders as a filled black box.
+void setFont(const uint8_t* font);
 void clear();                 // white background
 void show();                  // full refresh: push buffer to the panel (~4-5 s)
 void hibernate();             // EPD deep sleep until next reset

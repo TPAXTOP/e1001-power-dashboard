@@ -6,6 +6,7 @@
 //   - white button wake               -> cycle page, then normal wake cycle
 //   - timer / cold boot               -> normal wake cycle -> deep sleep
 #include <Arduino.h>
+#include <Wire.h>
 
 #include "../include/defaults.h"
 #include "../include/pins.h"
@@ -26,6 +27,9 @@ void setup() {
   pinMode(BTN_LEFT_PIN, INPUT_PULLUP);
   pinMode(LED_GREEN_PIN, OUTPUT);
   digitalWrite(LED_GREEN_PIN, HIGH);  // LED off (active low)
+
+  // I2C first: the USB/charger probe in the wake cycle runs before the RTC init.
+  Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
 
   Config cfg;
   config_store::load(cfg);
@@ -61,10 +65,13 @@ void setup() {
 
   PersistedState st;
   state_store::load(st);
+  bool coldBoot = cause == power_mgmt::WAKE_COLD;
+  if (coldBoot) power_mgmt::logI2cDevices();
 
   while (true) {
-    uint32_t sleepS = wake_cycle::run(cfg, st, pageButton);
+    uint32_t sleepS = wake_cycle::run(cfg, st, pageButton, coldBoot);
     pageButton = false;
+    coldBoot = false;
 
     // Plugged in + configured to stay awake: idle instead of deep sleep so
     // the next cycle starts instantly and serial stays attached for debugging.

@@ -1,6 +1,7 @@
 #include "wake_cycle.h"
 
 #include <Arduino.h>
+#include <string.h>
 #include <time.h>
 
 #include "../../include/defaults.h"
@@ -28,8 +29,12 @@ template <typename T, typename F>
 static void acquire(Source src, uint32_t maxAgeS, bool online, PersistedState& st, T& out,
                     bool& has, bool& stale, F fetchFn) {
   uint32_t now = time_sync::nowEpoch();
+  // Wakes are aligned to the interval, so with interval == maxAge the age is
+  // a few seconds short of maxAge each wake; without slack every other wake
+  // would skip the fetch. A last-success in the future (clock was wrong)
+  // wraps to a huge age and refetches.
   uint32_t age = now - st.lastSuccessEpoch[src];
-  bool fresh = st.lastSuccessEpoch[src] != 0 && age < maxAgeS;
+  bool fresh = st.lastSuccessEpoch[src] != 0 && age + 60 < maxAgeS;
 
   bool fetched = false;
   if (online && !fresh) {
@@ -71,7 +76,7 @@ static void rollOverOutageDays(dash::OutageSchedule& sched) {
   }
 }
 
-uint32_t run(Config& cfg, PersistedState& st, bool pageButton) {
+uint32_t run(Config& cfg, PersistedState& st, bool pageButton, bool coldBoot) {
   st.bootCount++;
 
   // --- battery policy -------------------------------------------------
@@ -95,7 +100,8 @@ uint32_t run(Config& cfg, PersistedState& st, bool pageButton) {
   if (online) {
     st.consecWifiFails = 0;
     uint32_t now = time_sync::nowEpoch();
-    if (!time_sync::timeValid() || st.lastSntpEpoch == 0 ||
+    // now < lastSntpEpoch (clock jumped back) wraps to a huge age -> resync.
+    if (coldBoot || !time_sync::timeValid() || st.lastSntpEpoch == 0 ||
         now - st.lastSntpEpoch > cfg.sntpIntervalS) {
       if (time_sync::syncSntp(cfg)) st.lastSntpEpoch = time_sync::nowEpoch();
     }
@@ -123,10 +129,39 @@ uint32_t run(Config& cfg, PersistedState& st, bool pageButton) {
             [&](dash::WeatherData& out) { return weather_api::fetch(cfg, out); });
   }
   if (cfg.widgetOutage) {
+    strlcpy(view.outageGroup, cfg.yasnoGroup.c_str(), sizeof(view.outageGroup));
+    yasno_api::FetchError yasnoErr = yasno_api::ERR_NONE;
+    bool yasnoTried = false;
+    auto fetchOutage = [&](dash::OutageSchedule& out) {
+      yasnoTried = true;
+      return yasno_api::fetch(cfg, out, &yasnoErr);
+    };
     acquire(SRC_OUTAGE, cfg.outageMaxAgeS, net, st, view.outage, view.hasOutage,
-            view.outageStale,
-            [&](dash::OutageSchedule& out) { return yasno_api::fetch(cfg, out); });
+            view.outageStale, fetchOutage);
+    if (view.hasOutage && strcmp(view.outage.groupId, view.outageGroup) != 0) {
+      // Group was changed in the portal: the cache belongs to the old group.
+      // Force a fetch now and never show another group's schedule.
+      st.lastSuccessEpoch[SRC_OUTAGE] = 0;
+      acquire(SRC_OUTAGE, cfg.outageMaxAgeS, net, st, view.outage, view.hasOutage,
+              view.outageStale, fetchOutage);
+      if (view.hasOutage && strcmp(view.outage.groupId, view.outageGroup) != 0) {
+        view.hasOutage = false;
+      }
+    }
     if (view.hasOutage && timeOk) rollOverOutageDays(view.outage);
+
+    if (!view.hasOutage) {
+      if (yasnoTried && yasnoErr == yasno_api::ERR_GROUP_MISSING) {
+        snprintf(view.outageError, sizeof(view.outageError),
+                 "Group %s not found - check settings", view.outageGroup);
+      } else if (!online) {
+        strlcpy(view.outageError, "No WiFi connection", sizeof(view.outageError));
+      } else if (!timeOk) {
+        strlcpy(view.outageError, "Clock not set (NTP failed)", sizeof(view.outageError));
+      } else {
+        strlcpy(view.outageError, "Yasno request failed", sizeof(view.outageError));
+      }
+    }
   }
   if (cfg.widgetBackup && cfg.hasDeye()) {
     acquire(SRC_BACKUP, cfg.backupMaxAgeS, net, st, view.backup, view.hasBackup,

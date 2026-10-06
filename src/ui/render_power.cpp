@@ -19,7 +19,7 @@ static U8G2_FOR_ADAFRUIT_GFX& f() { return display::u8g2(); }
 
 // Centered text helper; returns x where the text ends.
 static int printCentered(const uint8_t* font, const char* text, int cx, int baseline) {
-  f().setFont(font);
+  display::setFont(font);
   int w = f().getUTF8Width(text);
   f().setCursor(cx - w / 2, baseline);
   f().print(text);
@@ -27,14 +27,14 @@ static int printCentered(const uint8_t* font, const char* text, int cx, int base
 }
 
 static int printAt(const uint8_t* font, const char* text, int x, int baseline) {
-  f().setFont(font);
+  display::setFont(font);
   f().setCursor(x, baseline);
   f().print(text);
   return x + f().getUTF8Width(text);
 }
 
 static void printRight(const uint8_t* font, const char* text, int xRight, int baseline) {
-  f().setFont(font);
+  display::setFont(font);
   int w = f().getUTF8Width(text);
   f().setCursor(xRight - w, baseline);
   f().print(text);
@@ -63,7 +63,7 @@ static void renderWeather(const PowerView& v) {
 
   char temp[8];
   snprintf(temp, sizeof(temp), "%d", (int)lroundf(w.temperature));
-  f().setFont(u8g2_font_logisoso50_tn);
+  display::setFont(u8g2_font_logisoso50_tn);
   int tw = f().getUTF8Width(temp);
   int tx = 119 - (tw + 14) / 2;  // +14 ~ degree mark width
   f().setCursor(tx, 166);
@@ -109,6 +109,11 @@ static void renderWeather(const PowerView& v) {
 static void renderOutage(const PowerView& v) {
   int end = printAt(u8g2_font_helvB10_tf, "POWER OUTAGE", 256, 28);
   if (v.outageStale) widgets::drawStaleBadge(end + 6, 22);
+  if (v.outageGroup[0]) {
+    char grp[16];
+    snprintf(grp, sizeof(grp), "GROUP %s", v.outageGroup);
+    printRight(u8g2_font_helvB10_tf, grp, 784, 28);
+  }
 
   dash::DayOutages today, tomorrow;
   dash::getHourlyOutages(v.hasOutage ? &v.outage : nullptr, today, tomorrow);
@@ -125,6 +130,18 @@ static void renderOutage(const PowerView& v) {
   for (int i = 0; i < 24; i++) {
     widgets::drawOutageTile(256 + i * tileW, 112, tileW, tileH, tomorrow.hours[i],
                             !tomorrow.scheduleApplies);
+  }
+
+  // Without data the tiles are all white, which reads as "no outages" -
+  // cover them with an explicit notice instead.
+  if (!v.hasOutage) {
+    const int bx = 320, by = 62, bw = 400, bh = 76;
+    g().fillRect(bx, by, bw, bh, GxEPD_WHITE);
+    g().drawRect(bx, by, bw, bh, GxEPD_BLACK);
+    g().drawRect(bx + 1, by + 1, bw - 2, bh - 2, GxEPD_BLACK);
+    printCentered(u8g2_font_helvB12_tf, "NO OUTAGE DATA", bx + bw / 2, by + 30);
+    printCentered(u8g2_font_helvB10_tf, v.outageError[0] ? v.outageError : "Not fetched yet",
+                  bx + bw / 2, by + 56);
   }
 
   g().fillRect(240, 156, 560, 2, GxEPD_BLACK);  // widget border-bottom

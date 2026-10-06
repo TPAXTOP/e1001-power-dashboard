@@ -107,7 +107,9 @@ static void handleRoot() {
   addNum(html, "age_fx", "FX max age", c.fxMaxAgeS);
 
   html += "<h2>Power outage (Yasno)</h2>";
-  addText(html, "yasno_group", "Group (1.1 - 6.2)", c.yasnoGroup);
+  addText(html, "yasno_group",
+          "Group, e.g. 29.1 (check your address at yasno.ua - Yasno renumbers groups)",
+          c.yasnoGroup);
 
   html += "<h2>Deye inverter</h2>";
   addText(html, "deye_app_id", "App ID", c.deyeAppId);
@@ -146,12 +148,16 @@ static void handleSave() {
   lastActivityMs = millis();
   Config& c = *gCfg;
 
+  // Trimmed: pasted credentials/group ids often carry stray whitespace.
   auto arg = [&](const char* name, const String& fallback) {
-    return server.hasArg(name) ? server.arg(name) : fallback;
+    String v = server.hasArg(name) ? server.arg(name) : fallback;
+    v.trim();
+    return v;
   };
 
   c.wifiSsid = arg("wifi_ssid", c.wifiSsid);
-  c.wifiPass = arg("wifi_pass", c.wifiPass);
+  // Not trimmed: spaces are legal in a WPA passphrase.
+  if (server.hasArg("wifi_pass")) c.wifiPass = server.arg("wifi_pass");
 
   c.wakeIntervalS = arg("iv_wake", String(c.wakeIntervalS)).toInt();
   c.outageMaxAgeS = arg("age_outage", String(c.outageMaxAgeS)).toInt();
@@ -227,7 +233,7 @@ void run(Config& cfg, bool provisioning) {
   uint64_t mac = ESP.getEfuseMac();
   char apSsid[20], apPass[16];
   snprintf(apSsid, sizeof(apSsid), "EINK-SETUP-%04X", (uint16_t)(mac >> 32));
-  snprintf(apPass, sizeof(apPass), "eink%08X", (uint32_t)mac);
+  snprintf(apPass, sizeof(apPass), "eink%08X", (unsigned)(uint32_t)mac);
 
   String ip;
   bool apMode = provisioning;
@@ -254,7 +260,7 @@ void run(Config& cfg, bool provisioning) {
   if (provisioning) {
     render_system::renderSetup(apSsid, apPass, ip.c_str());
   } else {
-    render_system::renderMaintenance(ip.c_str());
+    render_system::renderMaintenance(ip.c_str(), apMode ? apSsid : nullptr, apPass);
   }
   display::show();
   display::hibernate();

@@ -106,6 +106,39 @@ static void test_schedule_applies_flag() {
   TEST_ASSERT_FALSE(tomorrow.scheduleApplies);  // absent day
 }
 
+// Real Yasno payload, group 29.1 on 2026-10-06 (after the 1.1-60.1 renumbering):
+// 18:00-21:30 definite, the rest NotPlanned.
+static void test_real_group_29_1() {
+  OutageSchedule s;
+  memset(&s, 0, sizeof(s));
+  s.today.present = true;
+  strcpy(s.today.date, "2026-10-06");
+  strcpy(s.today.status, "ScheduleApplies");
+  s.today.slotCount = 3;
+  s.today.slots[0] = {0, 1080, SLOT_NOT_PLANNED};
+  s.today.slots[1] = {1080, 1290, SLOT_DEFINITE};
+  s.today.slots[2] = {1290, 1440, SLOT_NOT_PLANNED};
+  s.tomorrow.present = true;
+  strcpy(s.tomorrow.status, "WaitingForSchedule");
+  s.tomorrow.slotCount = 1;
+  s.tomorrow.slots[0] = {0, 1440, SLOT_NOT_PLANNED};
+
+  DayOutages today, tomorrow;
+  getHourlyOutages(&s, today, tomorrow);
+  TEST_ASSERT_TRUE(today.scheduleApplies);
+  for (int h = 0; h < 18; h++) TEST_ASSERT_EQUAL_FLOAT(0.0f, today.hours[h].fraction);
+  for (int h = 18; h <= 20; h++) {
+    TEST_ASSERT_EQUAL_FLOAT(1.0f, today.hours[h].fraction);
+    TEST_ASSERT_EQUAL(HALF_BOTH, today.hours[h].halfAffected);
+  }
+  TEST_ASSERT_EQUAL_FLOAT(0.5f, today.hours[21].fraction);
+  TEST_ASSERT_EQUAL(HALF_FIRST, today.hours[21].halfAffected);
+  for (int h = 22; h < 24; h++) TEST_ASSERT_EQUAL_FLOAT(0.0f, today.hours[h].fraction);
+
+  TEST_ASSERT_FALSE(tomorrow.scheduleApplies);
+  for (int h = 0; h < 24; h++) TEST_ASSERT_EQUAL_FLOAT(0.0f, tomorrow.hours[h].fraction);
+}
+
 static void test_null_schedule() {
   DayOutages today, tomorrow;
   getHourlyOutages(nullptr, today, tomorrow);
@@ -211,6 +244,7 @@ int main(int, char**) {
   RUN_TEST(test_alternating_pattern);
   RUN_TEST(test_emergency_no_slots_pattern);
   RUN_TEST(test_schedule_applies_flag);
+  RUN_TEST(test_real_group_29_1);
   RUN_TEST(test_null_schedule);
   RUN_TEST(test_charging_status);
   RUN_TEST(test_runtime_minutes);

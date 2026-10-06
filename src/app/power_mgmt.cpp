@@ -33,23 +33,59 @@ int wakeButtonGpio() {
 }
 
 float batteryVolts() {
-  analogSetPinAttenuation(BAT_ADC_PIN, ADC_11db);
+  // The divider is switched: enable it, let it settle, sample, disable again
+  // so it does not drain the cell during deep sleep.
+  pinMode(BAT_EN_PIN, OUTPUT);
+  digitalWrite(BAT_EN_PIN, HIGH);
+  delay(10);
+  // Global default: per-pin attenuation fails before the pin's first read.
+  analogSetAttenuation(ADC_11db);
   uint32_t sum = 0;
   for (int i = 0; i < 8; i++) {
     sum += analogReadMilliVolts(BAT_ADC_PIN);
     delay(2);
   }
-  return (sum / 8) / 1000.0f * BAT_DIVIDER;
+  digitalWrite(BAT_EN_PIN, LOW);
+  float volts = (sum / 8) / 1000.0f * BAT_DIVIDER;
+
+  // A single-cell LiPo is never outside ~2.5-4.5 V. Anything else is a bad
+  // reading; report "unknown" (0) so the battery policy is skipped instead of
+  // putting a healthy device into button-only "battery empty" sleep.
+  if (volts < 2.5f || volts > 4.5f) {
+    LOGW("power", "implausible battery reading %.2fV, ignoring", volts);
+    return 0.0f;
+  }
+  return volts;
 }
 
 bool usbPresent() {
-  // SY6974B REG08: PG_STAT is bit 2.
+  // SY6974B REG08: PG_STAT is bit 2. The charger part/address is taken from
+  // community notes, not Seeed docs - the raw value is logged for checking.
+  // Zero-length probe first: quiet when the chip is absent, whereas a failed
+  // register read spams IDF i2c errors (the Wire NG driver only transmits a
+  // repeated-start write together with the read).
+  Wire.beginTransmission(kChargerAddr);
+  if (Wire.endTransmission() != 0) return false;
   Wire.beginTransmission(kChargerAddr);
   Wire.write(0x08);
   if (Wire.endTransmission(false) != 0) return false;
   if (Wire.requestFrom(kChargerAddr, (uint8_t)1) != 1) return false;
   uint8_t status = Wire.read();
+  LOGI("power", "charger REG08=0x%02X", status);
   return (status & 0x04) != 0;
+}
+
+void logI2cDevices() {
+  String found;
+  for (uint8_t addr = 0x08; addr < 0x78; addr++) {
+    Wire.beginTransmission(addr);
+    if (Wire.endTransmission() == 0) {
+      char buf[6];
+      snprintf(buf, sizeof(buf), " 0x%02X", addr);
+      found += buf;
+    }
+  }
+  LOGI("power", "I2C devices:%s", found.length() ? found.c_str() : " none");
 }
 
 void deepSleep(uint32_t seconds) {
