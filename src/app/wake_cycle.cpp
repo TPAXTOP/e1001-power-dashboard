@@ -301,18 +301,17 @@ uint32_t run(Config& cfg, PersistedState& st, bool pageButton, bool coldBoot) {
   display::show();
   display::hibernate();
 
-  // A freshly OTA-updated image that reached this point works; accept it.
-  if (st.otaPendingVerify) {
-    ota_pull::markImageValid();
-    st.otaPendingVerify = false;
-    LOGI("cycle", "OTA image verified OK");
-  }
+  // A freshly updated image that rendered and got online is healthy; until
+  // then any reset rolls it back (main.cpp retries before giving up).
+  if (online) ota_pull::confirmIfPending();
 
-  // --- periodic OTA check (skipped on low battery) ----------------------
-  if (net && !lowBatt && cfg.otaManifestUrl.length() && cfg.otaEveryN > 0 &&
-      st.bootCount % cfg.otaEveryN == 0) {
-    if (ota_pull::checkAndUpdate(cfg)) {
-      st.otaPendingVerify = true;
+  // --- OTA check: periodic + on cold boot (right after a USB flash) -----
+  bool battOkForOta = vbat < 0.5f || vbat >= DEF_VBAT_OTA_MIN;  // < 0.5: unknown
+  if (net && battOkForOta && cfg.otaEveryN > 0 && !ota_pull::pendingVerify() &&
+      (coldBoot || st.bootCount % cfg.otaEveryN == 0)) {
+    ota_pull::Result ota = ota_pull::checkAndUpdate(cfg, st.otaBadVersion);
+    if (ota.installed) {
+      st.otaTriedVersion = ota.version;
       state_store::save(st);
       wifi_mgr::disconnect();
       ESP.restart();

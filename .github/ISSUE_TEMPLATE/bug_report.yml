@@ -1,0 +1,47 @@
+name: Bug report
+description: Something on the device or in the build doesn't work as expected
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! **Remove WiFi passwords, API keys, Deye credentials and serial numbers** from anything you paste.
+        Security problems go to [private reporting](https://github.com/TPAXTOP/e1001-power-dashboard/security/advisories/new) instead.
+  - type: input
+    id: version
+    attributes:
+      label: Firmware version
+      description: Shown in the portal title and in the first serial log line (`I main eink-dash X.Y.Z`)
+      placeholder: 0.3.0
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+      description: A photo of the screen helps a lot.
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Serial log
+      description: "`python -m platformio device monitor`, 115200 baud, one full wake cycle"
+      render: text
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Display / layout
+        - Weather (Open-Meteo)
+        - Power outages (Yasno)
+        - Backup power (Deye)
+        - Exchange rate page
+        - WiFi / portal / setup
+        - Firmware update (OTA)
+        - Battery / sleep
+        - Build / tooling
+        - Other
+    validations:
+      required: true

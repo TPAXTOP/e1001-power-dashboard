@@ -28,7 +28,9 @@ void load(PersistedState& st) {
   st.lastOnlineEpoch = p.getUInt("online_last", 0);
   st.lastFullEpoch = p.getUInt("full_last", 0);
   st.lastPage = p.getUChar("last_page", 0);
-  st.otaPendingVerify = p.getBool("ota_pending", false);
+  // isKey first: a missing string key logs an [E] line (new keys in 0.3.0).
+  st.otaTriedVersion = p.isKey("ota_tried") ? p.getString("ota_tried", "") : "";
+  st.otaBadVersion = p.isKey("ota_bad") ? p.getString("ota_bad", "") : "";
   st.deyeToken = p.getString("deye_token", "");
   st.deyeTokenExpEpoch = p.getUInt("deye_tok_exp", 0);
   p.end();
@@ -47,7 +49,8 @@ void save(const PersistedState& st) {
   p.putUInt("online_last", st.lastOnlineEpoch);
   p.putUInt("full_last", st.lastFullEpoch);
   p.putUChar("last_page", st.lastPage);
-  p.putBool("ota_pending", st.otaPendingVerify);
+  p.putString("ota_tried", st.otaTriedVersion);
+  p.putString("ota_bad", st.otaBadVersion);
   p.putString("deye_token", st.deyeToken);
   p.putUInt("deye_tok_exp", st.deyeTokenExpEpoch);
   p.end();

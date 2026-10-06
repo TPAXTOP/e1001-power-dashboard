@@ -10,6 +10,7 @@
 #include "../../include/defaults.h"
 #include "../../include/version.h"
 #include "../hw/sht4x.h"
+#include "../net/ota_pull.h"
 #include "../net/time_sync.h"
 #include "../store/state_store.h"
 #include "../ui/display.h"
@@ -23,6 +24,7 @@ static WebServer server(80);
 static Config* gCfg = nullptr;
 static uint32_t lastActivityMs = 0;
 static bool rebootRequested = false;
+static bool apMode = false;
 
 static String sha256Hex(const String& input) {
   uint8_t hash[32];
@@ -98,6 +100,10 @@ static String statusLine() {
     s += dur;
     s += " ago";
   }
+  if (st.otaBadVersion.length()) {
+    s += "<br>Update to " + htmlEscape(st.otaBadVersion) +
+         " was rolled back (it failed its first wake); it will not be retried automatically.";
+  }
   float t, rh;
   if (sht4x::read(t, rh)) {
     s += "<br>Indoor sensor (raw, no offsets): " + String(t, 1) + " &deg;C, " + String(rh, 0) +
@@ -169,7 +175,9 @@ static void handleRoot() {
   addText(html, "fx_key", "exchangerate.host API key", c.fxApiKey);
 
   html += "<h2>Updates</h2>";
-  addText(html, "ota_url", "OTA manifest URL (version.json)", c.otaManifestUrl);
+  addText(html, "ota_url", "Update manifest URL (version.json; empty = project default)",
+          c.otaManifestUrl);
+  addNum(html, "ota_every", "Check for updates every N wakes (0 = never)", c.otaEveryN);
 
   html += "<h2>Indoor climate</h2>";
   addFloat(html, "in_t_off", "Temperature offset (&deg;C, added to the sensor)", c.indoorTempOffset);
@@ -196,6 +204,9 @@ static void handleRoot() {
       "<form method='POST' action='/update' enctype='multipart/form-data'>"
       "<label>firmware.bin<input type='file' name='fw' accept='.bin'></label>"
       "<button type='submit'>Upload & Flash</button></form>"
+      "<form method='POST' action='/ota-check'><label>Download and install the latest signed "
+      "release now (needs internet, takes up to a minute)</label>"
+      "<button type='submit'>Check for update now</button></form>"
       "<form method='POST' action='/reboot'><button>Reboot now</button></form>"
       "</body></html>";
 
@@ -240,6 +251,7 @@ static void handleSave() {
 
   c.fxApiKey = arg("fx_key", c.fxApiKey);
   c.otaManifestUrl = arg("ota_url", c.otaManifestUrl);
+  c.otaEveryN = arg("ota_every", String(c.otaEveryN)).toInt();
 
   c.indoorTempOffset = arg("in_t_off", String(c.indoorTempOffset)).toFloat();
   c.indoorRhOffset = arg("in_rh_off", String(c.indoorRhOffset)).toFloat();
@@ -260,6 +272,35 @@ static void handleSave() {
   server.send(200, "text/html",
               "<html><body><h2>Saved. Rebooting...</h2></body></html>");
   rebootRequested = true;
+}
+
+// Same signed pull as the wake cycle, but on demand and also willing to retry
+// a version that was rolled back before.
+static void handleOtaCheck() {
+  lastActivityMs = millis();
+  String msg;
+  bool installed = false;
+  if (apMode) {
+    msg = "The device is in access-point mode (home WiFi unreachable), so it has no internet.";
+  } else {
+    ota_pull::Result r = ota_pull::checkAndUpdate(*gCfg, "");
+    msg = r.message;
+    if (r.installed) {
+      PersistedState st;
+      state_store::load(st);
+      st.otaTriedVersion = r.version;
+      st.otaBadVersion = "";
+      state_store::save(st);
+      installed = true;
+    }
+  }
+  lastActivityMs = millis();
+  server.send(200, "text/html",
+              "<html><body><h2>" + htmlEscape(msg) + "</h2>" +
+                  (installed ? String("<p>Rebooting into the new firmware...</p>")
+                             : String("<p><a href='/'>Back</a></p>")) +
+                  "</body></html>");
+  if (installed) rebootRequested = true;
 }
 
 static void handleUpdateDone() {
@@ -295,6 +336,9 @@ static void handleUpdateUpload() {
 
 void run(Config& cfg, bool provisioning) {
   gCfg = &cfg;
+  // Reaching the portal is enough to accept a fresh image: from here any
+  // firmware can be uploaded, so a rollback would only get in the way.
+  ota_pull::confirmIfPending();
   time_sync::initFromRtc(cfg);  // for "last full ... ago" in the status line
 
   // AP credentials derived from the chip MAC: stable per device.
@@ -304,7 +348,7 @@ void run(Config& cfg, bool provisioning) {
   snprintf(apPass, sizeof(apPass), "eink%08X", (unsigned)(uint32_t)mac);
 
   String ip;
-  bool apMode = provisioning;
+  apMode = provisioning;
   if (!provisioning) {
     WiFi.mode(WIFI_STA);
     WiFi.begin(cfg.wifiSsid.c_str(), cfg.wifiPass.c_str());
@@ -336,6 +380,7 @@ void run(Config& cfg, bool provisioning) {
   server.on("/", HTTP_GET, handleRoot);
   server.on("/save", HTTP_POST, handleSave);
   server.on("/update", HTTP_POST, handleUpdateDone, handleUpdateUpload);
+  server.on("/ota-check", HTTP_POST, handleOtaCheck);
   server.on("/reboot", HTTP_POST, []() {
     server.send(200, "text/plain", "rebooting");
     rebootRequested = true;

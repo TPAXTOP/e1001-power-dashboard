@@ -1,0 +1,139 @@
+# Tag-driven release: `python scripts/release.py X.Y.Z` + `git push --follow-tags`.
+#
+# build    - compiles and tests with no access to secrets
+# publish  - runs in the protected "release" environment (tags v* only): signs
+#            the manifest with OTA_SIGNING_KEY, attests build provenance and
+#            publishes the GitHub release. Devices follow
+#            releases/latest/download/version.json, which skips prereleases.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build and test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Tag must match APP_VERSION
+        id: version
+        run: |
+          version=$(sed -n 's/^#define APP_VERSION "\(.*\)"/\1/p' include/version.h)
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match APP_VERSION $version (use scripts/release.py)"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
+      # No build cache here on purpose: release binaries come from a clean
+      # toolchain download, never from a cache another workflow wrote.
+      - run: pip install -r requirements-dev.txt
+
+      - name: Host unit tests
+        run: pio test -e native
+
+      - name: Build firmware
+        run: |
+          pio run -e e1001
+          pio run -e e1001 -t factory
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: images
+          path: |
+            .pio/build/e1001/firmware.bin
+            .pio/build/e1001/factory.bin
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Sign and publish
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: release
+    permissions:
+      contents: write      # create the release
+      id-token: write      # provenance attestation
+      attestations: write
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: images
+          path: .pio/build/e1001
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
+      - run: pip install "$(grep '^cryptography==' requirements-dev.txt)"
+
+      - name: Sign manifest
+        env:
+          OTA_SIGNING_KEY: ${{ secrets.OTA_SIGNING_KEY }}
+        run: |
+          python scripts/gen_version.py \
+            "https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}" --sign
+          python scripts/gen_version.py --verify
+
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            release/firmware.bin
+            release/factory.bin
+
+      - name: Release notes from CHANGELOG.md
+        run: |
+          # Prereleases don't date the changelog; their notes are [Unreleased].
+          section="$VERSION"; [[ "$VERSION" == *-* ]] && section="Unreleased"
+          awk -v v="$section" '
+            index($0, "## [" v "]") == 1 { on = 1; next }
+            on && /^## \[/ { exit }
+            on { print }
+          ' CHANGELOG.md > notes.md
+          if ! grep -q '[^[:space:]]' notes.md; then
+            echo "::error::CHANGELOG.md has no section [$section]"
+            exit 1
+          fi
+          cat >> notes.md <<EOF
+
+          ---
+          **Devices** pick this up on their next update check (or via *Check for update now* in the portal).
+          **First install / USB recovery:** flash \`factory.bin\` at offset 0x0, see [INSTALL.md](https://github.com/${GITHUB_REPOSITORY}/blob/${GITHUB_REF_NAME}/INSTALL.md).
+          **Verify provenance:** \`gh attestation verify firmware.bin --repo ${GITHUB_REPOSITORY}\`
+          EOF
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [[ "$VERSION" == *-* ]]; then channel=(--prerelease --latest=false); else channel=(--latest); fi
+          gh release create "$GITHUB_REF_NAME" \
+            release/firmware.bin release/factory.bin release/version.json release/SHA256SUMS \
+            --repo "$GITHUB_REPOSITORY" --verify-tag \
+            --title "$GITHUB_REF_NAME" --notes-file notes.md "${channel[@]}"

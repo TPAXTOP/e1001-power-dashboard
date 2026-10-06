@@ -1,0 +1,16 @@
+name: Feature request
+description: Suggest an improvement or a new widget
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What would you like, and why?
+      description: Describe the use case. Mockups or photos are welcome.
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else?
+      description: Data sources, battery-life impact, other devices...

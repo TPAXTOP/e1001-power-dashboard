@@ -25,6 +25,7 @@
 #define DEF_VBAT_LOW 3.45f              // stretch wake interval x4 below this
 #define DEF_VBAT_CRITICAL 3.30f         // render "battery empty", sleep until button
 #define DEF_VBAT_FULL 4.15f             // at/above this a wake counts as "fully charged"
+#define DEF_VBAT_OTA_MIN 3.70f          // no firmware download below this
 
 // Indoor climate (onboard SHT4x). Offsets correct for the warm enclosure;
 // values outside the comfort range are drawn inverted.
@@ -47,9 +48,11 @@
 #define DEF_FX_TARGET "UAH"
 #define DEF_FX_HISTORY_DAYS 29
 
-// OTA manifest URL, e.g. https://github.com/<user>/<repo>/releases/latest/download/version.json
-// Empty disables the periodic pull check.
-#define DEF_OTA_MANIFEST_URL ""
+// OTA manifest of the latest published (non-pre)release. Images must be signed
+// with the key matching certs/ota_signing_pub.pem. An empty URL in NVS falls
+// back to this; "update check every N wakes" = 0 disables the pull check.
+#define DEF_OTA_MANIFEST_URL \
+  "https://github.com/TPAXTOP/e1001-power-dashboard/releases/latest/download/version.json"
 
 #define MAINTENANCE_TIMEOUT_MS (10UL * 60UL * 1000UL)
 #define BTN_HOLD_MS 1500

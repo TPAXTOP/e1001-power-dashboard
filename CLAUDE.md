@@ -22,12 +22,15 @@ $env:PATH = "$env:LOCALAPPDATA\mingw-portable\mingw64\bin;$env:PATH"
 python -m platformio test -e native
 ```
 
-Release for pull-OTA (after bumping `APP_VERSION` in `include/version.h`):
+Releases are tag-driven (repo: github.com/TPAXTOP/e1001-power-dashboard; details in `docs/RELEASING.md`):
 
 ```powershell
-python scripts/gen_version.py https://github.com/<user>/<repo>/releases/download/v<X.Y.Z>
-# upload release/firmware.bin + release/version.json as release assets
+python scripts/release.py X.Y.Z            # bumps version.h, dates CHANGELOG [Unreleased], commits + tags
+git push origin main --follow-tags         # .github/workflows/release.yml builds, signs, publishes
+python -m platformio run -e e1001 -t factory   # local merged image (scripts/factory_image.py)
 ```
+
+Never hand-build or upload release assets: only the workflow has the signing key (`OTA_SIGNING_KEY` in the `release` environment). Tags `v*` and releases are immutable, so fix forward with a new version.
 
 ## Architecture
 
@@ -38,7 +41,7 @@ One-shot wake cycle, not a long-running app: `setup()` dispatches (first boot �
 | `lib/dashcore/` | **Pure C++ (no Arduino)**: data structs (`data_model.h`) + display-derivation logic (`derive.cpp`) ported 1:1 from the web app's `lib/data-fetchers.ts` / `deye-api.ts`. Host-unit-tested. Behavior changes in `derive.cpp` must stay in parity with the web app semantics. `status.cpp` is firmware-only (device battery %, drain rate, rain chance, outage countdown) and has no parity constraint. |
 | `src/app/wake_cycle.cpp` | The state machine: battery policy → RTC/SNTP time → WiFi → per-source fetch-or-cache → render → OTA check → sleep duration |
 | `src/app/maintenance.cpp` | Web portal (WebServer): edits ALL config in NVS, manual firmware upload. AP `EINK-SETUP-xxxx` on first boot / STA fallback |
-| `src/net/` | `https.cpp` (one shared TLS client + embedded `certs/roots.pem`), `time_sync.cpp` (PCF8563 RTC ↔ system clock ↔ SNTP), `ota_pull.cpp` (version.json manifest → Update) |
+| `src/net/` | `https.cpp` (one shared TLS client + embedded `certs/roots.pem`), `time_sync.cpp` (PCF8563 RTC ↔ system clock ↔ SNTP), `ota_pull.cpp` (signed version.json manifest → Update, rollback confirmation) |
 | `src/api/` | One client per source; Yasno uses an ArduinoJson Filter to parse only the configured group from the all-groups response |
 | `src/store/` | `config_store` (NVS ns "cfg" — every runtime setting), `state_store` (ns "state" + "cache": last-success epochs, Deye token, CRC-framed POD cache blobs) |
 | `src/hw/` | `sht4x.cpp`: onboard temperature/humidity sensor, minimal driver (no library), read at the start of each wake before WiFi warms the board |
@@ -53,6 +56,8 @@ Key invariants:
 - **Device battery "since full"**: there is no charger/USB detection, so every wake with `vbat >= vbatFull` (NVS, default 4.15 V) stores `lastFullEpoch`. The timer therefore counts from when the device came off the charger. Drain rate = (100 − %) / days since full, shown after 12 h.
 - Bump `dash::kCacheVersion` when any struct in `data_model.h` changes layout — old NVS blobs are then discarded instead of misread.
 - Secrets never go in code or git; they live in NVS, entered via the portal. Deye password is stored as SHA256 only.
+- **OTA trust chain**: the device installs a pulled image only if size + SHA-256 match `version.json` and its `sig` (ECDSA P-256 over `"<version>\n<sha256hex>\n"`) verifies against `certs/ota_signing_pub.pem` (embedded). Versions must be strictly newer by SemVer (`lib/dashcore/semver.cpp`). Manual portal uploads stay unsigned on purpose (physical button + LAN = recovery path).
+- **Rollback**: `main.cpp` overrides `verifyRollbackLater()` → a new image boots PENDING_VERIFY. `ota_pull::confirmIfPending()` runs after an online render (wake_cycle) and on portal entry (maintenance + provisioning). Any reset before that rolls back, including deep sleep, so `main.cpp` retries offline wakes 3× before sleeping. Every new boot path that can deep-sleep or reboot must decide whether it confirms. `otaTriedVersion` → `otaBadVersion` (NVS state) stops retrying a rolled-back version.
 
 ## Hardware (include/pins.h)
 
@@ -70,5 +75,7 @@ EPD SPI: SCK 7, MOSI 9, CS 10, DC 11, RST 12, BUSY 13 (HSPI, `GxEPD2_750_GDEY075
 - Fonts: always call `display::setFont()`, never `u8g2().setFont()`. U8g2_for_Adafruit_GFX resets to solid-background mode on every font change, and its default background is 0 (black), so text renders as black boxes (seen on the first real flash).
 - 1-bit display only: no grey — use the dither helpers in `widgets.cpp` (web CSS `#999` ≙ 50% checker).
 - TLS: if a host rotates to an uncovered root CA (serial shows TLS errors), regenerate `certs/roots.pem` — see README "TLS root store" (scripts/make_roots.py + check_roots.ps1).
-- OTA has no effective rollback yet: a boot-looping OTA image needs USB recovery. The prebuilt core *does* have `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE`, but Arduino's weak `verifyRollbackLater()` returns false, so every image is marked valid at boot. Future task: override it and mark the image valid on every boot path (wake cycle, maintenance, provisioning), not only after a render, otherwise a deep-sleep or portal reboot would roll back a good image. The app-level `otaPendingVerify` flag exists.
+- otadata sits at 0x29000 in `partitions_8mb.csv`, so `board_upload.arduino.boot_app0 = 0x29000` is required. The core defaults to 0xe000, which is inside NVS, and a USB upload would then keep booting the old OTA slot. Keep the two in sync if the partition table changes.
+- The OTA rollback path is unverified on hardware so far (as of 0.3.0). Test it with a deliberately crashing portal upload; see docs/RELEASING.md.
+- Losing the signing key ends OTA for deployed devices; rotation is described in docs/RELEASING.md.
 - Memory: one TLS connection at a time only; large JSON bodies go through `http.getString()` (>16KB allocs land in PSRAM automatically); never add concurrent fetches.

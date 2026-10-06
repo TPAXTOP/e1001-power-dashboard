@@ -4,3 +4,7 @@
 !certs/*.pem
 __pycache__/
 release/
+
+# Signing keys never belong in the repo (only the public key is committed)
+*_key.pem
+*.key

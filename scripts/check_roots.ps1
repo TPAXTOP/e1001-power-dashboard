@@ -7,6 +7,7 @@ $hosts = @(
     "api.exchangerate.host",
     "github.com",
     "objects.githubusercontent.com",
+    "release-assets.githubusercontent.com",  # where release downloads redirect (OTA)
     "pool.ntp.org"  # NTP is plain UDP; listed only to note it needs no cert
 )
 

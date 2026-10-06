@@ -14,9 +14,15 @@
 #include "app/maintenance.h"
 #include "app/power_mgmt.h"
 #include "app/wake_cycle.h"
+#include "net/ota_pull.h"
 #include "store/config_store.h"
 #include "store/state_store.h"
 #include "util/log.h"
+
+// Keep a freshly updated image in PENDING_VERIFY instead of letting the core
+// accept it at boot: it is confirmed only after a healthy wake (online render)
+// or on entering the portal, so a crash or reset before that rolls back.
+extern "C" bool verifyRollbackLater() { return true; }
 
 void setup() {
   Serial.begin(115200);
@@ -65,13 +71,23 @@ void setup() {
 
   PersistedState st;
   state_store::load(st);
+  ota_pull::noteBootedVersion(st);
   bool coldBoot = cause == power_mgmt::WAKE_COLD;
   if (coldBoot) power_mgmt::logI2cDevices();
 
+  int verifyRetries = 0;
   while (true) {
     uint32_t sleepS = wake_cycle::run(cfg, st, pageButton, coldBoot);
     pageButton = false;
     coldBoot = false;
+
+    // Deep sleep would reset a still-unconfirmed new image into a rollback.
+    // A WiFi hiccup should not cost the update, so retry a few times first.
+    if (ota_pull::pendingVerify() && verifyRetries++ < 3) {
+      LOGW("main", "new image not confirmed yet (offline), retry %d in 60 s", verifyRetries);
+      delay(60000);
+      continue;
+    }
 
     // Plugged in + configured to stay awake: idle instead of deep sleep so
     // the next cycle starts instantly and serial stays attached for debugging.

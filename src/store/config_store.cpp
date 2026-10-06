@@ -64,6 +64,8 @@ void load(Config& cfg) {
   cfg.fxHistoryDays = p.getUShort("fx_days", DEF_FX_HISTORY_DAYS);
 
   cfg.otaManifestUrl = p.getString("ota_url", DEF_OTA_MANIFEST_URL);
+  // Before 0.3.0 the default was empty, and a portal save stored that.
+  if (!cfg.otaManifestUrl.length()) cfg.otaManifestUrl = DEF_OTA_MANIFEST_URL;
 
   cfg.widgetWeather = p.getBool("w_weather", true);
   cfg.widgetOutage = p.getBool("w_outage", true);

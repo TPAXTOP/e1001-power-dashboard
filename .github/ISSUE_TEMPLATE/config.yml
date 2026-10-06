@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Installation help
+    url: https://github.com/TPAXTOP/e1001-power-dashboard/blob/main/INSTALL.md#9-troubleshooting
+    about: Most setup problems are covered by the troubleshooting table in INSTALL.md
+  - name: Report a security vulnerability
+    url: https://github.com/TPAXTOP/e1001-power-dashboard/security/advisories/new
+    about: Please report security issues privately

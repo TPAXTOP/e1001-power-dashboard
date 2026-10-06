@@ -1,9 +1,15 @@
 # Installing on the reTerminal E1001 — step by step
 
 This guide assumes you are new to ESP32 work. Commands are for **Windows PowerShell**, run from the repo root
-(`D:\WebProjects\eink-firmware`). The first install takes about 30 minutes, most of it downloads.
+(the folder you cloned, e.g. `git clone https://github.com/TPAXTOP/e1001-power-dashboard`). The first install takes
+about 30 minutes, most of it downloads.
 
-Do steps 1–6 once, over USB. After that, every change (settings, Yasno group, firmware updates) goes over WiFi.
+Do steps 1–6 once, over USB. After that, every change goes over WiFi: settings, the Yasno group, and firmware
+updates, which the device installs by itself from this repository's
+[releases](https://github.com/TPAXTOP/e1001-power-dashboard/releases).
+
+> **No build environment wanted?** Every release has a ready-made `factory.bin`. See
+> [Flash a prebuilt release](#flash-a-prebuilt-release-instead-of-building) and skip steps 2 and 6.
 
 ---
 
@@ -28,6 +34,21 @@ python -m platformio run -e e1001
 
 The first run downloads about 1 GB of toolchain and takes several minutes. It should end with `[SUCCESS]`. The output
 is `.pio\build\e1001\firmware.bin`.
+
+### Flash a prebuilt release instead of building
+
+1. Install only the flashing tool: `pip install esptool`. You still need the USB driver and cable from step 1.
+2. Download `factory.bin` from the [latest release](https://github.com/TPAXTOP/e1001-power-dashboard/releases/latest).
+   Optionally, check it against `SHA256SUMS` from the same release with `Get-FileHash factory.bin`.
+3. Do steps 3–5 below, using `python -m esptool` wherever the guide says `& $esptool`.
+4. Instead of step 6, press green and run:
+
+   ```powershell
+   python -m esptool erase-flash                  # FIRST install only, wipes factory data
+   python -m esptool write-flash 0x0 factory.bin  # press green first
+   ```
+
+5. Continue with step 7. To watch the log without PlatformIO, use any serial terminal at 115200 baud.
 
 ## 3. Wake the device before any USB step
 
@@ -102,7 +123,8 @@ After the upload, the screen shows **FIRST TIME SETUP**, and the log ends with
    | Device serial number | `DEYE_DEVICE_SN` |
    | Battery capacity (Wh) | `5120` unless your battery differs (used for the runtime estimate) |
    | exchangerate.host API key | `EXCHANGERATE_API_KEY` |
-   | OTA manifest URL | Leave empty |
+   | Update manifest URL | Leave empty. Empty means this project's latest signed release |
+   | Check for updates every N wakes | `72` (about 12 h at a 10-min interval). `0` turns automatic updates off |
    | Indoor climate, Device battery | Defaults are fine. If the indoor temperature reads high or low, set an offset later; the line at the top of the portal shows raw sensor and battery readings |
 
 4. Click **Save & Reboot**. The device joins your WiFi, fetches everything, and draws the dashboard within about
@@ -111,7 +133,7 @@ After the upload, the screen shows **FIRST TIME SETUP**, and the log ends with
 ### What a healthy first run looks like in `device monitor`
 
 ```
-I main     eink-dash 0.1.2
+I main     eink-dash 0.3.0
 I power    I2C devices: 0x44 0x51 ...
 I cycle    boot=1 vbat=3.95V usb=0
 I wifi     connected, ip=192.168.x.x rssi=-55 (2100 ms)
@@ -121,6 +143,7 @@ I yasno    ok: today[2026-10-06 ScheduleApplies 3 slots] tomorrow[...]
 I deye     authenticated, token valid ...s
 I deye     history: 288 raw -> 96 points
 I deye     ok: soc=87% grid=1 battW=... loadW=... status=...
+I ota      up to date (0.3.0, latest 0.3.0)
 I power    deep sleep for ...s
 ```
 
@@ -140,12 +163,22 @@ last full charge, and an average drain of 6% per day.
 **To change settings later** (group, interval, credentials): hold green. The screen then shows the portal address,
 `http://eink.local` or an IP. Open it on a device that is on the same WiFi. No reflashing is needed.
 
-**To update the firmware later, without a cable:**
-1. Build with `python -m platformio run -e e1001`.
-2. Hold green, open the portal, choose **Firmware update**, and select `.pio\build\e1001\firmware.bin`.
-3. Click **Upload & Flash**.
+**Firmware updates are automatic.** On every cold boot and then about every 12 h, the device checks this
+repository's latest release. It installs the release only if the image is signed with the project key and its hash
+matches. A new version gets one chance to prove itself: if it can't draw the dashboard while online, the device
+rolls back to the previous version by itself and won't retry that one. Updates are skipped while the battery is
+below 3.7 V. Your settings survive updates.
 
-Your settings survive updates.
+- **Update right now:** hold green, open the portal, and click **Check for update now**.
+- **Install your own build** (unsigned is fine here, because you are physically at the device): build with
+  `python -m platformio run -e e1001`, hold green, choose **Firmware update**, select
+  `.pio\build\e1001\firmware.bin`, and click **Upload & Flash**. An automatic update later replaces it with the
+  newest release.
+
+> **Upgrading a device that runs 0.2.0 or older:** those versions can't check signatures, and their update URL is
+> empty. Install 0.3.0 once by hand: either the USB upload from step 6 (no erase), or the portal upload of
+> `firmware.bin` from the [v0.3.0 release](https://github.com/TPAXTOP/e1001-power-dashboard/releases/tag/v0.3.0).
+> Every later version arrives by itself.
 
 ## 9. Troubleshooting
 
@@ -161,3 +194,5 @@ Your settings survive updates.
 | Battery widget never shows the "since full" time | The ADC never reads the full-charge voltage. Charge to full, open the portal, and set **Full-charge voltage** about 0.03 V below the battery voltage shown at the top |
 | Upload fails with "Failed to connect" | The device was asleep. Press green and retry immediately |
 | Boot loop right after flashing | See the note in step 6 (`memory_type`) |
+| Portal says an update **was rolled back** | That version failed its first wake and the device went back. The device skips it until a newer release appears. **Check for update now** retries it on purpose. Please open an issue with the serial log |
+| `ota … manifest signature invalid` | The release wasn't signed with the project key. The device refuses it on purpose |

@@ -1,43 +1,56 @@
-# eink-firmware — reTerminal E1001 standalone dashboard
+# E1001 Power Dashboard
 
-Native ESP32-S3 firmware for the **Seeed Studio reTerminal E1001** (7.5" 800x480
-monochrome ePaper) that replaces the SenseCraft-HMI + Vercel web dashboard chain.
-The device fetches all data itself over HTTPS and renders the dashboard locally:
+[![CI](https://github.com/TPAXTOP/e1001-power-dashboard/actions/workflows/ci.yml/badge.svg)](https://github.com/TPAXTOP/e1001-power-dashboard/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/TPAXTOP/e1001-power-dashboard?sort=semver)](https://github.com/TPAXTOP/e1001-power-dashboard/releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![Platform](https://img.shields.io/badge/ESP32--S3-PlatformIO%20%7C%20Arduino-orange)
 
-- **Weather** — Open-Meteo (Kyiv): current conditions + 6-hour forecast
-- **Power outages** — Yasno planned-outage schedule (today/tomorrow, 24 hour
-  tiles with half-hour diagonals and EmergencyShutdowns zebra pattern)
-- **Backup power** — Deye Cloud inverter: battery SOC, grid status,
-  charge/discharge + runtime estimate, load, 24h SOC graph
-- **USD/UAH** — exchangerate.host 30-day chart (second page, white buttons)
+Standalone ESP32-S3 firmware that turns a **Seeed Studio reTerminal E1001** (7.5" 800×480 monochrome e-paper) into
+a battery-powered dashboard for life with scheduled blackouts in Kyiv. The device fetches all data itself over
+HTTPS and renders it locally, with no server in between. It deep-sleeps between refreshes and runs for weeks on its
+built-in battery.
 
-Battery-first: the device deep-sleeps between wakes (default 10 min, configurable
-down to ~5 min) and does one full e-paper refresh per wake. Failed refreshes fall
-back to the last-known-good data cached in NVS, marked with a "!" badge.
+<!-- Photo: add docs/images/device.jpg and uncomment
+<p align="center"><img src="docs/images/device.jpg" width="640" alt="The dashboard on a reTerminal E1001"></p>
+-->
 
-## Repository layout
+## Features
 
-| Path | Purpose |
+- **Power outages** from the [Yasno](https://yasno.ua) planned-outage schedule for your group: today and tomorrow
+  as 24 hour tiles, with half-hour precision and emergency-shutdown hatching. The status bar counts down to the
+  next outage.
+- **Backup power** from a Deye inverter through Deye Cloud: battery SOC, grid status, charge/discharge power with a
+  runtime estimate, load, and a 24 h SOC graph.
+- **Weather** from [Open-Meteo](https://open-meteo.com): current conditions, chance of rain over the next 3 h, and
+  a 6-hour forecast. Indoor temperature and humidity come from the onboard sensor.
+- **USD/UAH** 30-day chart on a second page (white buttons), via exchangerate.host.
+- **Built for the battery:** one full e-paper refresh per wake, a separate refresh cadence per source, and
+  last-known-good data cached in flash with a "!" badge when a fetch fails.
+- **No reflash for settings:** WiFi, Yasno group, credentials, intervals and widgets are all set in a web portal on
+  the device.
+- **Safe automatic updates:** signed releases from this repo, hash and signature checked on the device, and an
+  automatic rollback if a new version fails its first wake ([details](SECURITY.md#how-firmware-updates-are-protected)).
+
+## Hardware
+
+| | |
 |---|---|
-| `lib/dashcore/` | Pure data structs + derive logic (host-unit-tested, no Arduino) |
-| `src/app/` | Wake-cycle state machine, power management, maintenance portal |
-| `src/net/` | WiFi, HTTPS+root store, SNTP/PCF8563 time, OTA pull |
-| `src/api/` | Open-Meteo / Yasno / Deye / exchangerate.host clients |
-| `src/store/` | NVS config + state/cache persistence |
-| `src/ui/` | GxEPD2 display, widgets/icons, screen renderers |
-| `include/pins.h` | E1001 pin map (EPD SPI 7/9/10/11/12/13, I2C 19/20, buttons 3/4/5) |
-| `certs/roots.pem` | Curated root CAs embedded for TLS (see scripts/make_roots.py) |
-| `test/test_derive/` | Host unit tests (`python -m platformio test -e native`) |
+| Device | [Seeed Studio reTerminal E1001](https://www.seeedstudio.com/) (ESP32-S3, 8 MB PSRAM, 32 MB flash) |
+| Display | 7.5" 800×480 monochrome e-paper, UC8179 (GxEPD2 `GDEY075T7`) |
+| Sensors | SHT4x temperature/humidity, PCF8563 RTC, battery voltage ADC |
+| Buttons | Green: refresh / hold for settings. White: switch page |
 
 ## Install
 
-**New to this? Follow [INSTALL.md](INSTALL.md)**. It is a step-by-step guide covering the USB driver, waking the
-device for flashing, a factory backup, the first flash, the setup portal (with a field-by-field mapping from the web
-dashboard's `.env.local`), and troubleshooting.
+**Quick:** download `factory.bin` from the [latest release](https://github.com/TPAXTOP/e1001-power-dashboard/releases/latest)
+and flash it with esptool. **From source:** PlatformIO. Both paths are covered step by step, including the USB
+driver, waking the device for flashing, a factory backup, and the first-time setup portal, in
+**[INSTALL.md](INSTALL.md)**.
 
-Short version, for when you already know the drill (PlatformIO is not on PATH here, so use `python -m platformio`):
+Short version for when you already know the drill:
 
 ```powershell
+pip install -r requirements-dev.txt
 python -m platformio run -e e1001                 # build
 python -m platformio run -e e1001 -t erase        # FIRST flash only (wipes factory data)
 python -m platformio run -e e1001 -t upload       # press the green button first: no flashing while asleep
@@ -47,28 +60,26 @@ python -m platformio device monitor               # 115200 baud serial log
 After the first flash, the screen shows **FIRST TIME SETUP**. Join the `EINK-SETUP-xxxx` WiFi it shows, open
 `http://192.168.4.1`, and enter your WiFi (2.4 GHz), Yasno group, Deye and exchangerate.host credentials. Every
 setting lives in NVS and survives firmware updates. To change settings later, **hold the green button ~1.5 s**. The
-device then wakes into **maintenance mode** and serves the same form on your home WiFi (`http://eink.local` or the IP
-shown on screen). If home WiFi is unreachable, it opens its own access point and shows its credentials on screen.
+device then opens the same portal on your home WiFi (`http://eink.local` or the IP shown on screen).
 
-## Updating over WiFi
+## Updates
 
-Two mechanisms, no USB cable required:
+Devices update themselves. On cold boot and about every 12 h, the device reads
+`releases/latest/download/version.json`. It installs a newer version only when the image's SHA-256 matches and the
+ECDSA signature verifies against the key compiled into the firmware. The new image then has to draw the dashboard
+while online before it is confirmed; otherwise the bootloader returns to the previous version. Updates are skipped
+below 3.7 V.
 
-- **Manual:** maintenance mode → *Firmware update* → upload `.pio/build/e1001/firmware.bin`.
-- **Automatic (pull OTA):** publish a release and set its manifest URL in the
-  portal. The device checks every ~12 h and updates itself:
+You can also trigger an update from the portal (**Check for update now**), or upload any `firmware.bin` there by
+hand.
 
-  ```bash
-  python -m platformio run -e e1001
-  python scripts/gen_version.py https://github.com/<user>/<repo>/releases/download/v0.2.0
-  # upload release/firmware.bin + release/version.json to the GitHub release,
-  # point "OTA manifest URL" at .../releases/latest/download/version.json
-  ```
+Maintainers cut a release with two commands. CI builds, tests, signs and publishes it; see
+[docs/RELEASING.md](docs/RELEASING.md):
 
-  Bump `APP_VERSION` in `include/version.h` for every release — the device
-  only installs strictly newer semver. Config/NVS survives updates; most
-  behavior tweaks (intervals, group, widgets, credentials) need **no reflash**
-  at all, just the portal.
+```powershell
+python scripts/release.py 0.3.1
+git push origin main --follow-tags
+```
 
 ## Buttons
 
@@ -78,18 +89,39 @@ Two mechanisms, no USB cable required:
 | Green (top), hold ~1.5 s | maintenance portal | — |
 | White left/right | toggle power ⇄ FX page | toggle page |
 
-## Tests
+## Power budget (2000 mAh battery)
+
+Each cycle keeps the device awake for roughly 15–25 s (WiFi, up to 4 TLS fetches, a 4–5 s e-paper refresh). That
+works out to about 10–12 days at a 5-min interval and about 3 weeks at 10 min. Below 3.45 V the firmware stretches
+the interval ×4. Below 3.30 V it shows "battery empty" and sleeps until a button press.
+
+## Repository layout
+
+| Path | Purpose |
+|---|---|
+| `lib/dashcore/` | Pure C++ data structs, derive logic and SemVer (host-unit-tested, no Arduino) |
+| `src/app/` | Wake-cycle state machine, power management, maintenance portal |
+| `src/net/` | WiFi, HTTPS + root store, SNTP/PCF8563 time, signed OTA pull |
+| `src/api/` | Open-Meteo, Yasno, Deye, exchangerate.host clients |
+| `src/store/` | NVS config and state/cache persistence |
+| `src/ui/` | GxEPD2 display, widgets/icons, screen renderers |
+| `include/pins.h` | E1001 pin map (EPD SPI 7/9/10/11/12/13, I2C 19/20, buttons 3/4/5) |
+| `certs/` | Curated TLS root CAs and the OTA signing public key |
+| `scripts/` | Release packaging/signing, factory image, root CA tooling |
+| `test/` | Host unit tests (`python -m platformio test -e native`) |
+
+## Development
 
 ```powershell
-$env:PATH = "$env:LOCALAPPDATA\mingw-portable\mingw64\bin;$env:PATH"   # host gcc
-python -m platformio test -e native    # derive-logic unit tests
+python -m platformio test -e native    # host unit tests (needs gcc/MinGW on PATH)
 ```
 
-## TLS root store
+See [CONTRIBUTING.md](CONTRIBUTING.md). CI builds the firmware and runs the tests on every push and pull request.
 
-`certs/roots.pem` holds ~23 curated root CAs (verified 2026-06 against the
-actual chains of every host the firmware contacts). If a host rotates to an
-uncovered CA (symptom: TLS errors in the serial log), regenerate:
+### TLS root store
+
+`certs/roots.pem` holds about 23 curated root CAs, verified against the actual chains of every host the firmware
+contacts. If a host rotates to an uncovered CA (symptom: TLS errors in the serial log), regenerate it:
 
 ```powershell
 Invoke-WebRequest https://curl.se/ca/cacert.pem -OutFile cacert.pem
@@ -97,10 +129,16 @@ python scripts/make_roots.py cacert.pem      # update WANTED list if needed
 # scripts/check_roots.ps1 shows the current root CA of every host
 ```
 
-## Power budget (2000 mAh battery)
+## Acknowledgements
 
-Roughly 15–25 s awake per cycle (WiFi + 4 TLS fetches + 4–5 s EPD refresh):
-≈ 10–12 days at a 5-min interval, ≈ 3 weeks at 10 min. Below 3.45 V the
-firmware stretches the interval ×4; below 3.30 V it shows "battery empty" and
-sleeps until a button press. On USB power, enable *Stay awake on USB* for
-instant page switching and an always-listening portal.
+Data: [Open-Meteo](https://open-meteo.com) (CC BY 4.0), [Yasno](https://yasno.ua), Deye Cloud,
+[exchangerate.host](https://exchangerate.host). Libraries: [GxEPD2](https://github.com/ZinggJM/GxEPD2),
+[U8g2_for_Adafruit_GFX](https://github.com/olikraus/U8g2_for_Adafruit_GFX),
+[ArduinoJson](https://arduinojson.org), [RTClib](https://github.com/adafruit/RTClib), and the
+[pioarduino](https://github.com/pioarduino/platform-espressif32) ESP32 platform.
+
+This is an independent hobby project, not affiliated with Seeed Studio, Yasno, Deye or any data provider.
+
+## License
+
+[MIT](LICENSE)
