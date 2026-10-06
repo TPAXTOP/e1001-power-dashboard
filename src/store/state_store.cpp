@@ -86,17 +86,6 @@ void saveBlob(Source src, const void* data, size_t size) {
   Preferences p;
   p.begin(kCacheNs, false);
 
-  // Skip the erase+write cycle when content is unchanged.
-  size_t stored = p.isKey(kBlobKeys[src]) ? p.getBytesLength(kBlobKeys[src]) : 0;
-  if (stored == sizeof(hdr) + size) {
-    BlobHeader oldHdr;
-    p.getBytes(kBlobKeys[src], &oldHdr, sizeof(oldHdr));
-    if (oldHdr.version == hdr.version && oldHdr.crc == hdr.crc) {
-      p.end();
-      return;
-    }
-  }
-
   uint8_t* buf = static_cast<uint8_t*>(malloc(sizeof(hdr) + size));
   if (!buf) {
     p.end();
@@ -104,6 +93,22 @@ void saveBlob(Source src, const void* data, size_t size) {
   }
   memcpy(buf, &hdr, sizeof(hdr));
   memcpy(buf + sizeof(hdr), data, size);
+
+  // Skip the erase+write cycle when content is unchanged. getBytes() refuses
+  // a buffer shorter than the stored blob, so read the whole thing.
+  size_t stored = p.isKey(kBlobKeys[src]) ? p.getBytesLength(kBlobKeys[src]) : 0;
+  if (stored == sizeof(hdr) + size) {
+    uint8_t* old = static_cast<uint8_t*>(malloc(stored));
+    bool same = old && p.getBytes(kBlobKeys[src], old, stored) == stored &&
+                memcmp(old, buf, stored) == 0;
+    free(old);
+    if (same) {
+      free(buf);
+      p.end();
+      return;
+    }
+  }
+
   p.putBytes(kBlobKeys[src], buf, sizeof(hdr) + size);
   free(buf);
   p.end();

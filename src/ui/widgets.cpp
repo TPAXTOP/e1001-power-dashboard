@@ -190,8 +190,10 @@ void drawMiniBattery(int x, int y, int pct) {
 }
 
 // ---------------------------------------------------------------- power icons
-// 32x48 box like the web SVGs (PowerIcons.tsx); inner shapes use a 24x24
-// viewBox mapped into that box for grid/status/load.
+// 32x48 box like the web SVGs (PowerIcons.tsx). Firmware departure: the web
+// draws grid/status/load at 24x24 inside that box with thin strokes; here
+// they all fill the battery's footprint (24 wide, y+2..y+44) with solid
+// shapes and 2px outlines so the row reads as one set from a distance.
 
 void drawBatteryIcon(int x, int y, float pct) {
   if (pct < 0) pct = 0;
@@ -205,53 +207,78 @@ void drawBatteryIcon(int x, int y, float pct) {
   }
 }
 
-// 24-viewBox -> 32x48 box (icon drawn centered, scaled by 1.6 like the web)
-static inline float ix(int x, float v) { return x + 1.6f + v * 1.2f; }
-static inline float iy(int y, float v) { return y + 10.0f + v * 1.2f; }
+// Round-capped stroke: a disc of radius r swept along the segment.
+static void brushLine(int x0, int y0, int x1, int y1, int r, uint16_t color) {
+  int steps = std::max(abs(x1 - x0), abs(y1 - y0));
+  for (int i = 0; i <= steps; i++) {
+    float t = steps ? (float)i / steps : 0.0f;
+    g().fillCircle((int)lroundf(x0 + (x1 - x0) * t), (int)lroundf(y0 + (y1 - y0) * t), r, color);
+  }
+}
 
+// Miter-offset a simple polygon inward by d px (either winding).
+static void insetPolygon(const float* xs, const float* ys, int n, float d, float* ox, float* oy) {
+  float area = 0;
+  for (int i = 0; i < n; i++) {
+    int j = (i + 1) % n;
+    area += xs[i] * ys[j] - xs[j] * ys[i];
+  }
+  float sgn = area > 0 ? 1.0f : -1.0f;
+  for (int i = 0; i < n; i++) {
+    int p = (i + n - 1) % n, q = (i + 1) % n;
+    float ax = xs[i] - xs[p], ay = ys[i] - ys[p];
+    float bx = xs[q] - xs[i], by = ys[q] - ys[i];
+    float la = sqrtf(ax * ax + ay * ay), lb = sqrtf(bx * bx + by * by);
+    float n1x = -sgn * ay / la, n1y = sgn * ax / la;  // inward normals
+    float n2x = -sgn * by / lb, n2y = sgn * bx / lb;
+    float k = d / (1.0f + n1x * n2x + n1y * n2y);
+    ox[i] = xs[i] + (n1x + n2x) * k;
+    oy[i] = ys[i] + (n1y + n2y) * k;
+  }
+}
+
+// Web bolt polygon (24 viewBox, spans x 6..18, y 2..22), scaled 2.1x to
+// 25x42 and centered in the box.
 static const float kBoltX[6] = {13, 6, 11, 11, 18, 13};
 static const float kBoltY[6] = {2, 14, 14, 22, 10, 10};
 
 void drawGridIcon(int x, int y, bool on) {
   float xs[6], ys[6];
   for (int i = 0; i < 6; i++) {
-    xs[i] = ix(x, kBoltX[i]);
-    ys[i] = iy(y, kBoltY[i]);
+    xs[i] = x + 16 + (kBoltX[i] - 12) * 2.1f;
+    ys[i] = y + 2 + (kBoltY[i] - 2) * 2.1f;
   }
-  if (on) {
-    fillPolygon(xs, ys, 6, GxEPD_BLACK);
-  } else {
-    for (int i = 0; i < 6; i++) {
-      int j = (i + 1) % 6;
-      thickLine((int)xs[i], (int)ys[i], (int)xs[j], (int)ys[j], 2, GxEPD_BLACK);
-    }
-    thickLine((int)ix(x, 4), (int)iy(y, 4), (int)ix(x, 20), (int)iy(y, 20), 2, GxEPD_BLACK);
+  fillPolygon(xs, ys, 6, GxEPD_BLACK);
+  if (!on) {
+    float ix[6], iy[6];
+    insetPolygon(xs, ys, 6, 2.0f, ix, iy);
+    fillPolygon(ix, iy, 6, GxEPD_WHITE);
+    // strike-through with a white halo so it stays readable over the outline
+    brushLine(x + 3, y + 6, x + 29, y + 42, 2, GxEPD_WHITE);
+    brushLine(x + 3, y + 6, x + 29, y + 42, 1, GxEPD_BLACK);
   }
 }
 
 void drawStatusIcon(int x, int y, uint8_t status) {
-  if (status == dash::CHARGE_DISCHARGING) {
-    thickLine((int)ix(x, 12), (int)iy(y, 4), (int)ix(x, 12), (int)iy(y, 18), 2, GxEPD_BLACK);
-    thickLine((int)ix(x, 6), (int)iy(y, 12), (int)ix(x, 12), (int)iy(y, 20), 2, GxEPD_BLACK);
-    thickLine((int)ix(x, 12), (int)iy(y, 20), (int)ix(x, 18), (int)iy(y, 12), 2, GxEPD_BLACK);
-  } else if (status == dash::CHARGE_CHARGING) {
-    thickLine((int)ix(x, 12), (int)iy(y, 6), (int)ix(x, 12), (int)iy(y, 20), 2, GxEPD_BLACK);
-    thickLine((int)ix(x, 6), (int)iy(y, 12), (int)ix(x, 12), (int)iy(y, 4), 2, GxEPD_BLACK);
-    thickLine((int)ix(x, 12), (int)iy(y, 4), (int)ix(x, 18), (int)iy(y, 12), 2, GxEPD_BLACK);
-  } else {  // idle / unknown: checkmark
-    thickLine((int)ix(x, 5), (int)iy(y, 12), (int)ix(x, 10), (int)iy(y, 18), 2, GxEPD_BLACK);
-    thickLine((int)ix(x, 10), (int)iy(y, 18), (int)ix(x, 19), (int)iy(y, 6), 2, GxEPD_BLACK);
+  if (status == dash::CHARGE_DISCHARGING) {  // solid arrow down
+    g().fillRect(x + 12, y + 2, 8, 22, GxEPD_BLACK);
+    g().fillTriangle(x + 4, y + 23, x + 28, y + 23, x + 16, y + 44, GxEPD_BLACK);
+  } else if (status == dash::CHARGE_CHARGING) {  // solid arrow up
+    g().fillTriangle(x + 16, y + 2, x + 4, y + 23, x + 28, y + 23, GxEPD_BLACK);
+    g().fillRect(x + 12, y + 23, 8, 22, GxEPD_BLACK);
+  } else {  // idle / unknown: bold checkmark
+    brushLine(x + 5, y + 24, x + 13, y + 33, 3, GxEPD_BLACK);
+    brushLine(x + 13, y + 33, x + 27, y + 13, 3, GxEPD_BLACK);
   }
 }
 
+// Mains plug: prongs on top (like the battery nub), solid body, cord below.
 void drawLoadIcon(int x, int y) {
-  int cx = (int)ix(x, 12);
-  int cy = (int)iy(y, 12);
-  int r = (int)(9 * 1.2f);
-  g().drawCircle(cx, cy, r, GxEPD_BLACK);
-  g().drawCircle(cx, cy, r - 1, GxEPD_BLACK);
-  thickLine(cx, cy, cx + (int)(5 * 1.2f), cy - (int)(5 * 1.2f), 2, GxEPD_BLACK);
-  g().fillCircle(cx, cy, 3, GxEPD_BLACK);
+  g().fillRoundRect(x + 9, y + 2, 4, 9, 1, GxEPD_BLACK);
+  g().fillRoundRect(x + 19, y + 2, 4, 9, 1, GxEPD_BLACK);
+  g().fillRoundRect(x + 4, y + 10, 24, 22, 4, GxEPD_BLACK);
+  g().fillTriangle(x + 8, y + 31, x + 24, y + 31, x + 16, y + 38, GxEPD_BLACK);
+  g().fillRect(x + 14, y + 34, 4, 11, GxEPD_BLACK);
 }
 
 // ---------------------------------------------------------------- outage tile
@@ -350,8 +377,7 @@ void drawBatteryGraph(int x, int y, const dash::BatteryPoint* points, int count)
   };
 
   // X ticks at 3-hour boundaries from actual timestamps (Kyiv local hours)
-  int lastLabelHour = -1;
-  display::setFont(u8g2_font_6x10_tf);
+  int lastLabelHour = -1;  // same font as the Y labels (still set)
   for (int i = 0; i < count; i++) {
     time_t t = points[i].epoch;
     struct tm local;

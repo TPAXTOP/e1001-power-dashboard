@@ -9,6 +9,12 @@ namespace config_store {
 
 static const char* kNs = "cfg";
 
+// Preferences::getFloat() logs an [E] line for every key that was never
+// saved (defaults are the norm), so check presence first.
+static float getFloatOr(Preferences& p, const char* key, float def) {
+  return p.isKey(key) ? p.getFloat(key, def) : def;
+}
+
 void load(Config& cfg) {
   Preferences p;
   p.begin(kNs, true);
@@ -27,16 +33,16 @@ void load(Config& cfg) {
   cfg.backupMaxAgeS = p.getUInt("age_backup", DEF_BACKUP_MAX_AGE_S);
   cfg.fxMaxAgeS = p.getUInt("age_fx", DEF_FX_MAX_AGE_S);
 
-  cfg.vbatLow = p.getFloat("vbat_low", DEF_VBAT_LOW);
-  cfg.vbatCrit = p.getFloat("vbat_crit", DEF_VBAT_CRITICAL);
-  cfg.vbatFull = p.getFloat("vbat_full", DEF_VBAT_FULL);
+  cfg.vbatLow = getFloatOr(p, "vbat_low", DEF_VBAT_LOW);
+  cfg.vbatCrit = getFloatOr(p, "vbat_crit", DEF_VBAT_CRITICAL);
+  cfg.vbatFull = getFloatOr(p, "vbat_full", DEF_VBAT_FULL);
 
-  cfg.indoorTempOffset = p.getFloat("in_t_off", DEF_INDOOR_T_OFFSET);
-  cfg.indoorRhOffset = p.getFloat("in_rh_off", DEF_INDOOR_RH_OFFSET);
-  cfg.comfortTempMin = p.getFloat("cf_t_min", DEF_COMFORT_T_MIN);
-  cfg.comfortTempMax = p.getFloat("cf_t_max", DEF_COMFORT_T_MAX);
-  cfg.comfortRhMin = p.getFloat("cf_rh_min", DEF_COMFORT_RH_MIN);
-  cfg.comfortRhMax = p.getFloat("cf_rh_max", DEF_COMFORT_RH_MAX);
+  cfg.indoorTempOffset = getFloatOr(p, "in_t_off", DEF_INDOOR_T_OFFSET);
+  cfg.indoorRhOffset = getFloatOr(p, "in_rh_off", DEF_INDOOR_RH_OFFSET);
+  cfg.comfortTempMin = getFloatOr(p, "cf_t_min", DEF_COMFORT_T_MIN);
+  cfg.comfortTempMax = getFloatOr(p, "cf_t_max", DEF_COMFORT_T_MAX);
+  cfg.comfortRhMin = getFloatOr(p, "cf_rh_min", DEF_COMFORT_RH_MIN);
+  cfg.comfortRhMax = getFloatOr(p, "cf_rh_max", DEF_COMFORT_RH_MAX);
 
   cfg.weatherLat = p.getString("wx_lat", DEF_WEATHER_LAT);
   cfg.weatherLon = p.getString("wx_lon", DEF_WEATHER_LON);

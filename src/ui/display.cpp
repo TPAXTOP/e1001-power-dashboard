@@ -15,6 +15,12 @@ static bool inited = false;
 
 void begin() {
   if (inited) return;
+  // GxEPD2 does digitalWrite() before pinMode() on CS/DC/RST, which core 3.x
+  // logs as an error for a pin not yet claimed as GPIO. Claim them first;
+  // pull-ups keep CS deselected and RST released until the driver drives them.
+  pinMode(EPD_CS_PIN, INPUT_PULLUP);
+  pinMode(EPD_DC_PIN, INPUT_PULLUP);
+  pinMode(EPD_RES_PIN, INPUT_PULLUP);
   hspi.begin(EPD_SCK_PIN, -1, EPD_MOSI_PIN, -1);
   epd.epd2.selectSPI(hspi, SPISettings(2000000, MSBFIRST, SPI_MODE0));
   epd.init(0);  // no diagnostic serial output from the driver
