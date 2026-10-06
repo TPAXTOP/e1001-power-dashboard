@@ -25,6 +25,8 @@ void load(PersistedState& st) {
   st.lastSntpEpoch = p.getUInt("sntp_last", 0);
   st.bootCount = p.getUInt("boot_count", 0);
   st.consecWifiFails = p.getUShort("wifi_fails", 0);
+  st.lastOnlineEpoch = p.getUInt("online_last", 0);
+  st.lastFullEpoch = p.getUInt("full_last", 0);
   st.lastPage = p.getUChar("last_page", 0);
   st.otaPendingVerify = p.getBool("ota_pending", false);
   st.deyeToken = p.getString("deye_token", "");
@@ -42,6 +44,8 @@ void save(const PersistedState& st) {
   p.putUInt("sntp_last", st.lastSntpEpoch);
   p.putUInt("boot_count", st.bootCount);
   p.putUShort("wifi_fails", st.consecWifiFails);
+  p.putUInt("online_last", st.lastOnlineEpoch);
+  p.putUInt("full_last", st.lastFullEpoch);
   p.putUChar("last_page", st.lastPage);
   p.putBool("ota_pending", st.otaPendingVerify);
   p.putString("deye_token", st.deyeToken);

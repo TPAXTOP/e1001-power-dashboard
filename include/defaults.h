@@ -24,6 +24,16 @@
 // Battery policy (volts at the cell, after the ADC divider correction)
 #define DEF_VBAT_LOW 3.45f              // stretch wake interval x4 below this
 #define DEF_VBAT_CRITICAL 3.30f         // render "battery empty", sleep until button
+#define DEF_VBAT_FULL 4.15f             // at/above this a wake counts as "fully charged"
+
+// Indoor climate (onboard SHT4x). Offsets correct for the warm enclosure;
+// values outside the comfort range are drawn inverted.
+#define DEF_INDOOR_T_OFFSET 0.0f
+#define DEF_INDOOR_RH_OFFSET 0.0f
+#define DEF_COMFORT_T_MIN 18.0f
+#define DEF_COMFORT_T_MAX 26.0f
+#define DEF_COMFORT_RH_MIN 30.0f
+#define DEF_COMFORT_RH_MAX 60.0f
 
 // Data sources
 #define DEF_YASNO_URL \

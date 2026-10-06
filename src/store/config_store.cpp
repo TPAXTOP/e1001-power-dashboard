@@ -29,6 +29,14 @@ void load(Config& cfg) {
 
   cfg.vbatLow = p.getFloat("vbat_low", DEF_VBAT_LOW);
   cfg.vbatCrit = p.getFloat("vbat_crit", DEF_VBAT_CRITICAL);
+  cfg.vbatFull = p.getFloat("vbat_full", DEF_VBAT_FULL);
+
+  cfg.indoorTempOffset = p.getFloat("in_t_off", DEF_INDOOR_T_OFFSET);
+  cfg.indoorRhOffset = p.getFloat("in_rh_off", DEF_INDOOR_RH_OFFSET);
+  cfg.comfortTempMin = p.getFloat("cf_t_min", DEF_COMFORT_T_MIN);
+  cfg.comfortTempMax = p.getFloat("cf_t_max", DEF_COMFORT_T_MAX);
+  cfg.comfortRhMin = p.getFloat("cf_rh_min", DEF_COMFORT_RH_MIN);
+  cfg.comfortRhMax = p.getFloat("cf_rh_max", DEF_COMFORT_RH_MAX);
 
   cfg.weatherLat = p.getString("wx_lat", DEF_WEATHER_LAT);
   cfg.weatherLon = p.getString("wx_lon", DEF_WEATHER_LON);
@@ -79,6 +87,14 @@ void save(const Config& cfg) {
 
   p.putFloat("vbat_low", cfg.vbatLow);
   p.putFloat("vbat_crit", cfg.vbatCrit);
+  p.putFloat("vbat_full", cfg.vbatFull);
+
+  p.putFloat("in_t_off", cfg.indoorTempOffset);
+  p.putFloat("in_rh_off", cfg.indoorRhOffset);
+  p.putFloat("cf_t_min", cfg.comfortTempMin);
+  p.putFloat("cf_t_max", cfg.comfortTempMax);
+  p.putFloat("cf_rh_min", cfg.comfortRhMin);
+  p.putFloat("cf_rh_max", cfg.comfortRhMax);
 
   p.putString("wx_lat", cfg.weatherLat);
   p.putString("wx_lon", cfg.weatherLon);

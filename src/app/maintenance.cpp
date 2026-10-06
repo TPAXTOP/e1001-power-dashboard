@@ -5,9 +5,13 @@
 #include <WebServer.h>
 #include <WiFi.h>
 #include <mbedtls/sha256.h>
+#include <status.h>
 
 #include "../../include/defaults.h"
 #include "../../include/version.h"
+#include "../hw/sht4x.h"
+#include "../net/time_sync.h"
+#include "../store/state_store.h"
 #include "../ui/display.h"
 #include "../ui/render_system.h"
 #include "../util/log.h"
@@ -65,6 +69,45 @@ static void addNum(String& html, const char* name, const char* label, uint32_t v
   addText(html, name, label, String(value), "number");
 }
 
+static void addFloat(String& html, const char* name, const char* label, float value) {
+  html += "<label>";
+  html += label;
+  html += "<input type='number' step='0.01' name='";
+  html += name;
+  html += "' value='";
+  html += String(value, 2);
+  html += "'></label>";
+}
+
+// Live readings shown above the form (battery calibration, sensor offsets).
+static String statusLine() {
+  String s;
+  float vbat = power_mgmt::batteryVolts();
+  if (vbat > 0) {
+    s += "Battery " + String(vbat, 2) + " V (" + String(dash::batteryPercentFromVolts(vbat)) + "%)";
+  } else {
+    s += "Battery: no valid reading";
+  }
+  PersistedState st;
+  state_store::load(st);
+  uint32_t now = time_sync::nowEpoch();
+  if (time_sync::timeValid() && st.lastFullEpoch && now >= st.lastFullEpoch) {
+    char dur[12];
+    dash::formatDuration(now - st.lastFullEpoch, dur, sizeof(dur));
+    s += ", last full ";
+    s += dur;
+    s += " ago";
+  }
+  float t, rh;
+  if (sht4x::read(t, rh)) {
+    s += "<br>Indoor sensor (raw, no offsets): " + String(t, 1) + " &deg;C, " + String(rh, 0) +
+         "%. Reads warm while the portal's WiFi is on; calibrate against the dashboard value.";
+  } else {
+    s += "<br>Indoor sensor not responding";
+  }
+  return s;
+}
+
 static void addCheck(String& html, const char* name, const char* label, bool value) {
   html += "<label class='chk'><input type='checkbox' name='";
   html += name;
@@ -93,7 +136,9 @@ static void handleRoot() {
       ".chk input{margin-right:.5em}button{padding:.6em 1.4em;font-size:1em;margin:.6em .4em 0 0}"
       "</style></head><body><h1>E-Paper Dashboard ";
   html += APP_VERSION;
-  html += "</h1><form method='POST' action='/save'>";
+  html += "</h1><p>";
+  html += statusLine();
+  html += "</p><form method='POST' action='/save'>";
 
   html += "<h2>WiFi</h2>";
   addText(html, "wifi_ssid", "SSID", c.wifiSsid);
@@ -125,6 +170,19 @@ static void handleRoot() {
 
   html += "<h2>Updates</h2>";
   addText(html, "ota_url", "OTA manifest URL (version.json)", c.otaManifestUrl);
+
+  html += "<h2>Indoor climate</h2>";
+  addFloat(html, "in_t_off", "Temperature offset (&deg;C, added to the sensor)", c.indoorTempOffset);
+  addFloat(html, "in_rh_off", "Humidity offset (%, added to the sensor)", c.indoorRhOffset);
+  addFloat(html, "cf_t_min", "Comfortable temperature from (&deg;C)", c.comfortTempMin);
+  addFloat(html, "cf_t_max", "Comfortable temperature to (&deg;C)", c.comfortTempMax);
+  addFloat(html, "cf_rh_min", "Comfortable humidity from (%)", c.comfortRhMin);
+  addFloat(html, "cf_rh_max", "Comfortable humidity to (%)", c.comfortRhMax);
+
+  html += "<h2>Device battery</h2>";
+  addFloat(html, "vbat_full",
+           "Full-charge voltage (V). A wake at or above it restarts the \"since full\" timer",
+           c.vbatFull);
 
   html += "<h2>Widgets & power</h2>";
   addCheck(html, "w_weather", "Weather widget", c.widgetWeather);
@@ -183,6 +241,15 @@ static void handleSave() {
   c.fxApiKey = arg("fx_key", c.fxApiKey);
   c.otaManifestUrl = arg("ota_url", c.otaManifestUrl);
 
+  c.indoorTempOffset = arg("in_t_off", String(c.indoorTempOffset)).toFloat();
+  c.indoorRhOffset = arg("in_rh_off", String(c.indoorRhOffset)).toFloat();
+  c.comfortTempMin = arg("cf_t_min", String(c.comfortTempMin)).toFloat();
+  c.comfortTempMax = arg("cf_t_max", String(c.comfortTempMax)).toFloat();
+  c.comfortRhMin = arg("cf_rh_min", String(c.comfortRhMin)).toFloat();
+  c.comfortRhMax = arg("cf_rh_max", String(c.comfortRhMax)).toFloat();
+  float full = arg("vbat_full", String(c.vbatFull)).toFloat();
+  if (full >= 3.9f && full <= 4.3f) c.vbatFull = full;  // a typo must not disable the timer
+
   // Unchecked checkboxes are absent from the POST body.
   c.widgetWeather = server.hasArg("w_weather");
   c.widgetOutage = server.hasArg("w_outage");
@@ -228,6 +295,7 @@ static void handleUpdateUpload() {
 
 void run(Config& cfg, bool provisioning) {
   gCfg = &cfg;
+  time_sync::initFromRtc(cfg);  // for "last full ... ago" in the status line
 
   // AP credentials derived from the chip MAC: stable per device.
   uint64_t mac = ESP.getEfuseMac();

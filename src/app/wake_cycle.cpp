@@ -1,6 +1,7 @@
 #include "wake_cycle.h"
 
 #include <Arduino.h>
+#include <status.h>
 #include <string.h>
 #include <time.h>
 
@@ -9,12 +10,14 @@
 #include "../api/fx_api.h"
 #include "../api/weather_api.h"
 #include "../api/yasno_api.h"
+#include "../hw/sht4x.h"
 #include "../net/ota_pull.h"
 #include "../net/time_sync.h"
 #include "../net/wifi_mgr.h"
 #include "../ui/display.h"
 #include "../ui/render_fx.h"
 #include "../ui/render_power.h"
+#include "../ui/render_statusbar.h"
 #include "../ui/render_system.h"
 #include "../util/log.h"
 #include "power_mgmt.h"
@@ -76,6 +79,82 @@ static void rollOverOutageDays(dash::OutageSchedule& sched) {
   }
 }
 
+// Status bar: one message by priority (problems > outage countdown > low
+// battery), plus render time and the device battery.
+static void buildStatusBar(const Config& cfg, const PersistedState& st, const PowerView& view,
+                           bool fxPage, bool fxStale, bool online, bool timeOk, bool lowBatt,
+                           float vbat, StatusBarView& sb) {
+  uint32_t now = time_sync::nowEpoch();
+  char dur[12];
+
+  struct Stale {
+    bool stale;
+    Source src;
+    const char* name;
+  };
+  const Stale stale[] = {
+      {cfg.widgetOutage && view.outageStale, SRC_OUTAGE, "Outage schedule"},
+      {cfg.widgetBackup && view.backupStale, SRC_BACKUP, "Inverter"},
+      {cfg.widgetWeather && view.weatherStale, SRC_WEATHER, "Weather"},
+      {fxPage && fxStale, SRC_FX, "Exchange rate"},
+  };
+  const Stale* firstStale = nullptr;
+  for (const Stale& s : stale) {
+    if (s.stale && st.lastSuccessEpoch[s.src] && now > st.lastSuccessEpoch[s.src]) {
+      firstStale = &s;
+      break;
+    }
+  }
+
+  char outageMsg[sizeof(sb.message)];
+  bool hasOutageMsg = false;
+  if (timeOk && view.hasOutage) {
+    time_t t = now;
+    struct tm local;
+    localtime_r(&t, &local);
+    hasOutageMsg = dash::formatOutageStatus(view.outage, local.tm_hour * 60 + local.tm_min,
+                                            outageMsg, sizeof(outageMsg));
+  }
+
+  char* msg = sb.message;
+  const size_t len = sizeof(sb.message);
+  sb.severity = StatusBarView::SEV_WARN;
+  if (!timeOk) {
+    strlcpy(msg, "Clock not set, waiting for time sync", len);
+  } else if (!online) {
+    if (st.lastOnlineEpoch && now > st.lastOnlineEpoch) {
+      dash::formatDuration(now - st.lastOnlineEpoch, dur, sizeof(dur));
+      snprintf(msg, len, "No WiFi for %s", dur);
+    } else {
+      strlcpy(msg, "No WiFi", len);
+    }
+  } else if (firstStale) {
+    dash::formatDuration(now - st.lastSuccessEpoch[firstStale->src], dur, sizeof(dur));
+    snprintf(msg, len, "%s data %s old", firstStale->name, dur);
+  } else if (hasOutageMsg) {
+    sb.severity = StatusBarView::SEV_INFO;
+    strlcpy(msg, outageMsg, len);
+  } else if (lowBatt) {
+    strlcpy(msg, "Battery low, refreshing less often", len);
+  } else {
+    sb.severity = StatusBarView::SEV_NONE;
+  }
+
+  if (timeOk) {
+    time_t t = now;
+    struct tm local;
+    localtime_r(&t, &local);
+    snprintf(sb.updated, sizeof(sb.updated), "%02d:%02d", local.tm_hour, local.tm_min);
+  }
+
+  sb.batteryPercent = dash::batteryPercentFromVolts(vbat);
+  if (timeOk && st.lastFullEpoch && now >= st.lastFullEpoch) {
+    sb.hasSinceFull = true;
+    sb.sinceFullS = now - st.lastFullEpoch;
+    sb.drainPerDay = dash::drainPerDay(sb.sinceFullS, sb.batteryPercent);
+  }
+}
+
 uint32_t run(Config& cfg, PersistedState& st, bool pageButton, bool coldBoot) {
   st.bootCount++;
 
@@ -93,6 +172,11 @@ uint32_t run(Config& cfg, PersistedState& st, bool pageButton, bool coldBoot) {
     power_mgmt::deepSleep(0);  // button-only wake
   }
   bool lowBatt = !usb && vbat > 0.5f && vbat < cfg.vbatLow;
+
+  // Indoor climate before WiFi and the panel refresh warm up the board.
+  float indoorT = 0, indoorRh = 0;
+  bool hasIndoor = sht4x::read(indoorT, indoorRh);
+  if (hasIndoor) LOGI("cycle", "indoor raw %.1fC %.0f%%", indoorT, indoorRh);
 
   // --- time + network -------------------------------------------------
   time_sync::initFromRtc(cfg);
@@ -113,6 +197,14 @@ uint32_t run(Config& cfg, PersistedState& st, bool pageButton, bool coldBoot) {
   // meaningless; only fetch when time is sane (first boot needs one SNTP).
   bool timeOk = time_sync::timeValid();
 
+  if (timeOk) {
+    uint32_t now = time_sync::nowEpoch();
+    if (online) st.lastOnlineEpoch = now;
+    // Every wake at/above the "full" voltage restarts the counter, so it
+    // effectively counts from when the device came off the charger.
+    if (vbat >= cfg.vbatFull) st.lastFullEpoch = now;
+  }
+
   // --- page selection --------------------------------------------------
   if (pageButton) st.lastPage = (st.lastPage + 1) % 2;
 
@@ -121,6 +213,16 @@ uint32_t run(Config& cfg, PersistedState& st, bool pageButton, bool coldBoot) {
   view.widgetWeather = cfg.widgetWeather;
   view.widgetOutage = cfg.widgetOutage;
   view.widgetBackup = cfg.widgetBackup;
+
+  if (hasIndoor) {
+    view.hasIndoor = true;
+    view.indoorTemp = indoorT + cfg.indoorTempOffset;
+    view.indoorRh = constrain(indoorRh + cfg.indoorRhOffset, 0.0f, 100.0f);
+    // Judge the rounded values that are shown, so "18" never reads as too cold.
+    long t = lroundf(view.indoorTemp), rh = lroundf(view.indoorRh);
+    view.indoorTempOut = t < cfg.comfortTempMin || t > cfg.comfortTempMax;
+    view.indoorRhOut = rh < cfg.comfortRhMin || rh > cfg.comfortRhMax;
+  }
 
   bool net = online && timeOk;
   if (cfg.widgetWeather) {
@@ -186,12 +288,16 @@ uint32_t run(Config& cfg, PersistedState& st, bool pageButton, bool coldBoot) {
              local.tm_min);
   }
 
+  StatusBarView bar;
+  buildStatusBar(cfg, st, view, st.lastPage == 1, fxStale, online, timeOk, lowBatt, vbat, bar);
+
   display::begin();
   if (st.lastPage == 1) {
     render_fx::render(hasFx, fxStale, fx);
   } else {
     render_power::render(view);
   }
+  render_statusbar::render(bar);
   display::show();
   display::hibernate();
 

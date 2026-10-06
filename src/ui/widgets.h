@@ -19,6 +19,14 @@ void fillRectDither(int x, int y, int w, int h);
 // --- weather icons (square, size px) ---
 void drawWeatherIcon(dash::WeatherIcon icon, int x, int y, int size);
 
+// --- small glyph icons (firmware-only, square box of `size` px) ---
+void drawUmbrellaIcon(int x, int y, int size);
+void drawHouseIcon(int x, int y, int size);
+void drawDropIcon(int x, int y, int size);
+void drawClockIcon(int cx, int cy, int r);
+// 24x11 status-bar battery (22x11 body + nub); pct < 0 = unknown (empty).
+void drawMiniBattery(int x, int y, int pct);
+
 // --- power metric icons (32x48 box, like the web SVGs) ---
 void drawBatteryIcon(int x, int y, float pct);
 void drawGridIcon(int x, int y, bool on);

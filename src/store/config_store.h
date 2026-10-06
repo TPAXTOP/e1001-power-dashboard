@@ -22,6 +22,14 @@ struct Config {
 
   float vbatLow;
   float vbatCrit;
+  float vbatFull;
+
+  float indoorTempOffset;
+  float indoorRhOffset;
+  float comfortTempMin;
+  float comfortTempMax;
+  float comfortRhMin;
+  float comfortRhMax;
 
   String weatherLat;
   String weatherLon;

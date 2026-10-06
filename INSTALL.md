@@ -103,6 +103,7 @@ After the upload, the screen shows **FIRST TIME SETUP**, and the log ends with
    | Battery capacity (Wh) | `5120` unless your battery differs (used for the runtime estimate) |
    | exchangerate.host API key | `EXCHANGERATE_API_KEY` |
    | OTA manifest URL | Leave empty |
+   | Indoor climate, Device battery | Defaults are fine. If the indoor temperature reads high or low, set an offset later; the line at the top of the portal shows raw sensor and battery readings |
 
 4. Click **Save & Reboot**. The device joins your WiFi, fetches everything, and draws the dashboard within about
    30 s.
@@ -124,7 +125,9 @@ I power    deep sleep for ...s
 ```
 
 On screen, the outage widget header reads **POWER OUTAGE … GROUP 29.1**. Today's outage hours are drawn as black
-tiles.
+tiles. The bar along the bottom shows the next outage (or a problem, marked with "!") on the left. The right side
+shows the refresh time and the device battery: `80% · 3d 4h · 6%/d` means 80% charge, 3 days 4 hours since the
+last full charge, and an average drain of 6% per day.
 
 ## 8. Everyday use
 
@@ -154,5 +157,7 @@ Your settings survive updates.
 | TLS / certificate errors in the log | A server switched to a root CA we don't embed. See "TLS root store" in README.md |
 | `https GET 403 …yasno…` | Yasno's CDN blocked the request. Report this along with the log |
 | Screen says **BATTERY EMPTY** | Connect USB-C, then press any button |
+| No indoor row under the weather | The onboard sensor didn't answer. Check that `0x44` is in the `I2C devices:` log line |
+| Battery widget never shows the "since full" time | The ADC never reads the full-charge voltage. Charge to full, open the portal, and set **Full-charge voltage** about 0.03 V below the battery voltage shown at the top |
 | Upload fails with "Failed to connect" | The device was asleep. Press green and retry immediately |
 | Boot loop right after flashing | See the note in step 6 (`memory_type`) |

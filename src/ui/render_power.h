@@ -20,6 +20,14 @@ struct PowerView {
   bool backupStale = false;
   dash::BackupData backup;
 
+  // Onboard SHT4x, offsets already applied. "Out" = outside the configured
+  // comfort range -> drawn inverted.
+  bool hasIndoor = false;
+  float indoorTemp = 0;
+  float indoorRh = 0;
+  bool indoorTempOut = false;
+  bool indoorRhOut = false;
+
   char nowLocalIso[20] = "";  // Kyiv "YYYY-MM-DDTHH:MM", filters past forecast hours
 
   bool widgetWeather = true;
@@ -29,7 +37,8 @@ struct PowerView {
 
 namespace render_power {
 
-// Compose the 800x480 screen into the display buffer (no refresh).
+// Compose the 800x450 page area into the display buffer (no refresh); the
+// status bar below it is drawn by render_statusbar.
 void render(const PowerView& view);
 
 }  // namespace render_power

@@ -1,11 +1,14 @@
 // Port of app/power/page.tsx + power.css. Layout constants mirror the CSS
 // box model: left weather column 240px, right column 560px with the outage
-// widget on top and backup power below.
+// widget on top and backup power below. Firmware-only departures from the web
+// page: the current-weather block (icon beside the temperature, rain chance,
+// indoor SHT4x row) and the status bar below y=450 (render_statusbar).
 #include "render_power.h"
 
 #include <Adafruit_GFX.h>
 #include <GxEPD2_BW.h>
 #include <derive.h>
+#include <status.h>
 #include <string.h>
 #include <time.h>
 
@@ -42,41 +45,89 @@ static void printRight(const uint8_t* font, const char* text, int xRight, int ba
 
 // ---------------------------------------------------------------- weather column
 
+// Value text, optionally inverted (white on a black box) to flag it.
+// extraRight widens the box for a hand-drawn suffix (degree mark).
+static int printFlagged(const uint8_t* font, const char* text, int x, int baseline, bool inverted,
+                        int extraRight = 0) {
+  display::setFont(font);
+  int w = f().getUTF8Width(text);
+  if (inverted) {
+    int ascent = f().getFontAscent();
+    g().fillRect(x - 4, baseline - ascent - 4, w + 8 + extraRight, ascent + 8, GxEPD_BLACK);
+    f().setForegroundColor(GxEPD_WHITE);
+  }
+  f().setCursor(x, baseline);
+  f().print(text);
+  f().setForegroundColor(GxEPD_BLACK);
+  return x + w;
+}
+
+// Indoor row (y 178-214): house icon, temperature, drop icon, humidity.
+static void renderIndoor(const PowerView& v) {
+  for (int x = 12; x < 226; x += 8) g().drawFastHLine(x, 172, 4, GxEPD_BLACK);  // dashed rule
+
+  const int base = 208;
+  widgets::drawHouseIcon(14, 186, 22);
+
+  char t[16];
+  snprintf(t, sizeof(t), "%d", (int)lroundf(v.indoorTemp));
+  int end = printFlagged(u8g2_font_logisoso22_tf, t, 46, base, v.indoorTempOut, 9);
+  // degree mark drawn like the big one, in the same color as the digits
+  uint16_t degColor = v.indoorTempOut ? GxEPD_WHITE : GxEPD_BLACK;
+  g().drawCircle(end + 5, base - 18, 3, degColor);
+  g().drawCircle(end + 5, base - 18, 2, degColor);
+
+  widgets::drawDropIcon(130, 189, 18);
+  char rh[16];
+  snprintf(rh, sizeof(rh), "%d%%", (int)lroundf(v.indoorRh));
+  printFlagged(u8g2_font_logisoso22_tf, rh, 154, base, v.indoorRhOut);
+}
+
 static void renderWeather(const PowerView& v) {
-  // column divider (border-right: 2px)
-  g().fillRect(238, 0, 2, 480, GxEPD_BLACK);
+  // column divider (border-right: 2px), down to the status bar
+  g().fillRect(238, 0, 2, 450, GxEPD_BLACK);
 
   // header
   int end = printCentered(u8g2_font_helvB12_tf, "Kyiv, Ukraine", 119, 30);
   if (v.weatherStale) widgets::drawStaleBadge(end + 4, 24);
   g().fillRect(12, 41, 214, 2, GxEPD_BLACK);
 
+  if (v.hasIndoor) renderIndoor(v);
+
   if (!v.hasWeather) {
-    printCentered(u8g2_font_helvB10_tf, "No data", 119, 120);
+    printCentered(u8g2_font_helvB10_tf, "No data", 119, 100);
     return;
   }
 
   const dash::WeatherData& w = v.weather;
 
-  // current conditions
-  widgets::drawWeatherIcon(dash::weatherCodeToIcon(w.weatherCode), 96, 56, 48);
+  // current conditions: icon left, big temperature centered in x 76-226
+  widgets::drawWeatherIcon(dash::weatherCodeToIcon(w.weatherCode), 14, 54, 56);
 
   char temp[8];
   snprintf(temp, sizeof(temp), "%d", (int)lroundf(w.temperature));
   display::setFont(u8g2_font_logisoso50_tn);
   int tw = f().getUTF8Width(temp);
-  int tx = 119 - (tw + 14) / 2;  // +14 ~ degree mark width
-  f().setCursor(tx, 166);
+  int tx = 151 - (tw + 14) / 2;  // +14 ~ degree mark width
+  f().setCursor(tx, 110);
   f().print(temp);
   // degree mark drawn manually: logisoso *_tn has digits only
-  g().drawCircle(tx + tw + 8, 122, 5, GxEPD_BLACK);
-  g().drawCircle(tx + tw + 8, 122, 4, GxEPD_BLACK);
+  g().drawCircle(tx + tw + 8, 66, 5, GxEPD_BLACK);
+  g().drawCircle(tx + tw + 8, 66, 4, GxEPD_BLACK);
 
-  printCentered(u8g2_font_helvB10_tf, dash::describeWeather(w.weatherCode), 119, 188);
+  printCentered(u8g2_font_helvB10_tf, dash::describeWeather(w.weatherCode), 119, 134);
 
-  char hum[24];
-  snprintf(hum, sizeof(hum), "Humidity: %d%%", w.humidity);
-  printCentered(u8g2_font_helvB08_tf, hum, 119, 206);
+  // precipitation chance over the next 3 hours
+  int prob = dash::maxPrecipProb(w, v.nowLocalIso, 3);
+  if (prob >= 0) {
+    char pp[16];
+    snprintf(pp, sizeof(pp), "%d%%", prob);
+    display::setFont(u8g2_font_helvB12_tf);
+    int pw = 16 + 6 + f().getUTF8Width(pp);
+    int px = 119 - pw / 2;
+    widgets::drawUmbrellaIcon(px, 145, 16);
+    printAt(u8g2_font_helvB12_tf, pp, px + 22, 160);
+  }
 
   g().fillRect(12, 220, 214, 2, GxEPD_BLACK);
 
@@ -92,6 +143,14 @@ static void renderWeather(const PowerView& v) {
     printAt(u8g2_font_helvB10_tf, hhmm, 14, rowY + 22);
 
     widgets::drawWeatherIcon(dash::weatherCodeToIcon(h.weatherCode), 100, rowY + 4, 24);
+
+    // rain chance only when it is worth noticing
+    if (h.precipProb != dash::kPrecipUnknown && h.precipProb >= 20) {
+      char hp[16];
+      snprintf(hp, sizeof(hp), "%d%%", h.precipProb);
+      widgets::drawUmbrellaIcon(131, rowY + 10, 11);
+      printAt(u8g2_font_helvB08_tf, hp, 145, rowY + 20);
+    }
 
     char ht[8];
     snprintf(ht, sizeof(ht), "%d\xC2\xB0", (int)lroundf(h.temperature));  // UTF-8 degree

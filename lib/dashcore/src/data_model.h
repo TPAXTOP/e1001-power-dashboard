@@ -10,7 +10,7 @@
 
 namespace dash {
 
-constexpr uint8_t kCacheVersion = 1;
+constexpr uint8_t kCacheVersion = 2;
 
 constexpr int kHourlyMax = 8;     // Open-Meteo forecast_hours
 constexpr int kHistoryMax = 96;   // battery graph points (15-min x 24h)
@@ -23,7 +23,10 @@ struct HourlyForecast {
   char time[20];        // local Kyiv "YYYY-MM-DDTHH:MM" as returned by Open-Meteo
   float temperature;
   int16_t weatherCode;
+  uint8_t precipProb;   // precipitation probability 0-100, kPrecipUnknown if absent
 };
+
+constexpr uint8_t kPrecipUnknown = 255;
 
 struct WeatherData {
   float temperature;

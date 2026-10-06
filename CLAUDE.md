@@ -35,19 +35,22 @@ One-shot wake cycle, not a long-running app: `setup()` dispatches (first boot �
 
 | Path | Responsibility |
 |---|---|
-| `lib/dashcore/` | **Pure C++ (no Arduino)**: data structs (`data_model.h`) + display-derivation logic (`derive.cpp`) ported 1:1 from the web app's `lib/data-fetchers.ts` / `deye-api.ts`. Host-unit-tested. Behavior changes here must stay in parity with the web app semantics. |
+| `lib/dashcore/` | **Pure C++ (no Arduino)**: data structs (`data_model.h`) + display-derivation logic (`derive.cpp`) ported 1:1 from the web app's `lib/data-fetchers.ts` / `deye-api.ts`. Host-unit-tested. Behavior changes in `derive.cpp` must stay in parity with the web app semantics. `status.cpp` is firmware-only (device battery %, drain rate, rain chance, outage countdown) and has no parity constraint. |
 | `src/app/wake_cycle.cpp` | The state machine: battery policy → RTC/SNTP time → WiFi → per-source fetch-or-cache → render → OTA check → sleep duration |
 | `src/app/maintenance.cpp` | Web portal (WebServer): edits ALL config in NVS, manual firmware upload. AP `EINK-SETUP-xxxx` on first boot / STA fallback |
 | `src/net/` | `https.cpp` (one shared TLS client + embedded `certs/roots.pem`), `time_sync.cpp` (PCF8563 RTC ↔ system clock ↔ SNTP), `ota_pull.cpp` (version.json manifest → Update) |
 | `src/api/` | One client per source; Yasno uses an ArduinoJson Filter to parse only the configured group from the all-groups response |
 | `src/store/` | `config_store` (NVS ns "cfg" — every runtime setting), `state_store` (ns "state" + "cache": last-success epochs, Deye token, CRC-framed POD cache blobs) |
-| `src/ui/` | `display.cpp` (GxEPD2, full-height 48KB buffer, one full refresh per wake), `widgets.cpp` (tiles/graph/icons/dither), `render_power.cpp` (geometry port of `power.css`) |
+| `src/hw/` | `sht4x.cpp`: onboard temperature/humidity sensor, minimal driver (no library), read at the start of each wake before WiFi warms the board |
+| `src/ui/` | `display.cpp` (GxEPD2, full-height 48KB buffer, one full refresh per wake), `widgets.cpp` (tiles/graph/icons/dither), `render_power.cpp` (geometry port of `power.css`), `render_statusbar.cpp` (screen-wide bar on every page) |
 
 Key invariants:
 - **Stale-data UX**: fetch failure → render NVS-cached blob + "!" badge (`acquire()` in wake_cycle.cpp). Cache must survive power loss → NVS, never RTC RAM.
 - **Per-source max-age** decouples fetch cadence from wake cadence (outage/backup 5 min, weather 30 min, fx 12 h — all NVS-configurable).
 - **Times are Europe/Kyiv** via POSIX TZ `EET-2EEST,M3.5.0/3,M10.5.0/4`. Open-Meteo returns Kyiv-local strings — compare/slice them directly, no conversion (same as the web app).
 - **Yasno groups are renumbered from time to time** (Kyiv: `1.1–6.2` became `1.1–60.1` in Oct 2026). The group is NVS config, never hardcoded. A missing group must render the "NO OUTAGE DATA" notice (`outageError` in `PowerView`): blank tiles would read as "no outages". A cache blob whose `groupId` differs from the config is never shown.
+- **Layout departures from the web app** (firmware-only): the current-weather block (icon beside the temperature, rain chance over the next 3 h, indoor row with out-of-comfort values inverted) and the **status bar at y 450–480**. Pages must leave y ≥ 450 free. Status bar message priority: clock > WiFi > stale source > outage countdown > low battery. Render time and the device battery sit on the right.
+- **Device battery "since full"**: there is no charger/USB detection, so every wake with `vbat >= vbatFull` (NVS, default 4.15 V) stores `lastFullEpoch`. The timer therefore counts from when the device came off the charger. Drain rate = (100 − %) / days since full, shown after 12 h.
 - Bump `dash::kCacheVersion` when any struct in `data_model.h` changes layout — old NVS blobs are then discarded instead of misread.
 - Secrets never go in code or git; they live in NVS, entered via the portal. Deye password is stored as SHA256 only.
 

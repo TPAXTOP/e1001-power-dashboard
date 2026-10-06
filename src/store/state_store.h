@@ -15,6 +15,8 @@ struct PersistedState {
   uint32_t lastSntpEpoch;
   uint32_t bootCount;
   uint16_t consecWifiFails;
+  uint32_t lastOnlineEpoch;  // last wake with WiFi (status bar "No WiFi for ...")
+  uint32_t lastFullEpoch;    // last wake with vbat >= vbatFull; 0 = never seen
   uint8_t lastPage;          // 0 = power, 1 = fx
   bool otaPendingVerify;
   String deyeToken;

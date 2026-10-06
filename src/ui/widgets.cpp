@@ -134,6 +134,61 @@ void drawWeatherIcon(dash::WeatherIcon icon, int x, int y, int size) {
   }
 }
 
+// ---------------------------------------------------------------- glyph icons
+
+void drawUmbrellaIcon(int x, int y, int size) {
+  int cx = x + size / 2;
+  int r = size / 2;
+  int cy = y + r;  // canopy: upper half disc
+  for (int dy = -r; dy <= 0; dy++) {
+    int hw = (int)lroundf(sqrtf((float)(r * r - dy * dy)));
+    g().drawFastHLine(cx - hw, cy + dy, 2 * hw + 1, GxEPD_BLACK);
+  }
+  int stroke = size >= 14 ? 2 : 1;
+  int bottom = y + size - 1;
+  g().fillRect(cx, cy, stroke, bottom - cy, GxEPD_BLACK);  // shaft
+  int hook = std::max(2, size / 5);
+  g().fillRect(cx - hook, bottom - stroke + 1, hook + stroke, stroke, GxEPD_BLACK);
+  g().fillRect(cx - hook, bottom - hook, stroke, hook, GxEPD_BLACK);
+}
+
+void drawHouseIcon(int x, int y, int size) {
+  int roofBase = y + size * 9 / 20;
+  g().fillTriangle(x + size / 2, y, x, roofBase, x + size - 1, roofBase, GxEPD_BLACK);
+  int bx = x + size * 3 / 20;
+  int bw = size - 2 * (size * 3 / 20);
+  int bh = y + size - roofBase;
+  g().drawRect(bx, roofBase, bw, bh, GxEPD_BLACK);
+  g().drawRect(bx + 1, roofBase, bw - 2, bh - 1, GxEPD_BLACK);
+  int dw = std::max(3, size / 5);
+  int dh = bh * 3 / 5;
+  g().fillRect(x + size / 2 - dw / 2, y + size - dh, dw, dh, GxEPD_BLACK);  // door
+}
+
+void drawDropIcon(int x, int y, int size) {
+  int cx = x + size / 2;
+  int r = size * 3 / 10;
+  int cy = y + size - 1 - r;
+  g().fillCircle(cx, cy, r, GxEPD_BLACK);
+  g().fillTriangle(cx, y, cx - r, cy, cx + r, cy, GxEPD_BLACK);
+}
+
+void drawClockIcon(int cx, int cy, int r) {
+  g().drawCircle(cx, cy, r, GxEPD_BLACK);
+  g().drawFastVLine(cx, cy - r + 2, r - 1, GxEPD_BLACK);
+  g().drawFastHLine(cx, cy, r - 2, GxEPD_BLACK);
+}
+
+void drawMiniBattery(int x, int y, int pct) {
+  g().drawRect(x, y, 22, 11, GxEPD_BLACK);
+  g().fillRect(x + 22, y + 3, 2, 5, GxEPD_BLACK);
+  if (pct > 0) {
+    int w = (int)lroundf(std::min(pct, 100) / 100.0f * 18.0f);
+    if (w < 1) w = 1;
+    g().fillRect(x + 2, y + 2, w, 7, GxEPD_BLACK);
+  }
+}
+
 // ---------------------------------------------------------------- power icons
 // 32x48 box like the web SVGs (PowerIcons.tsx); inner shapes use a 24x24
 // viewBox mapped into that box for grid/status/load.
