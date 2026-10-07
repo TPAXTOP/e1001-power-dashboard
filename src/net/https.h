@@ -20,4 +20,19 @@ bool httpGetJson(const String& url, JsonDocument& doc, const JsonDocument* filte
 bool httpPostJson(const String& url, const String& body, JsonDocument& doc,
                   const String& bearerToken = "", int* httpCodeOut = nullptr);
 
+// Requests above keep their TLS connection open (HTTP keep-alive), so the
+// next request to the same host skips the handshake. Close it before using
+// tlsClient() directly (OTA download) and before WiFi goes off.
+void closeAll();
+
+// Per-wake request outcome counters, for telling "no internet" from "a
+// server had a bad day" (dash::classifyConnectivity).
+struct Counters {
+  int attempts = 0;
+  int responses = 0;        // got any HTTP status line, even an error
+  int transportErrors = 0;  // DNS/TCP/TLS failure, no HTTP status
+};
+void resetCounters();
+const Counters& counters();
+
 }  // namespace net

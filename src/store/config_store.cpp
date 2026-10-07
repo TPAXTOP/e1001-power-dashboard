@@ -23,15 +23,27 @@ void load(Config& cfg) {
   cfg.wifiPass = p.getString("wifi_pass", "");
   cfg.tz = p.getString("tz", DEF_TZ);
 
-  cfg.wakeIntervalS = p.getUInt("iv_wake", DEF_WAKE_INTERVAL_S);
   cfg.wifiTimeoutMs = p.getUInt("wifi_to_ms", DEF_WIFI_TIMEOUT_MS);
   cfg.sntpIntervalS = p.getUInt("iv_sntp", DEF_SNTP_INTERVAL_S);
-  cfg.otaEveryN = p.getUShort("ota_every", DEF_OTA_EVERY_N_WAKES);
+  cfg.otaIntervalH = p.getUShort("ota_hours", DEF_OTA_INTERVAL_H);
 
+  // New key names for the intervals whose defaults changed in 0.4.0, so a
+  // value saved by an older portal (which always saved every field) does not
+  // pin the old 5-min / 10-min cadence.
   cfg.weatherMaxAgeS = p.getUInt("age_weather", DEF_WEATHER_MAX_AGE_S);
-  cfg.outageMaxAgeS = p.getUInt("age_outage", DEF_OUTAGE_MAX_AGE_S);
-  cfg.backupMaxAgeS = p.getUInt("age_backup", DEF_BACKUP_MAX_AGE_S);
+  cfg.outageMaxAgeS = p.getUInt("iv_outage", DEF_OUTAGE_MAX_AGE_S);
+  cfg.backupMaxAgeS = p.getUInt("iv_backup", DEF_BACKUP_MAX_AGE_S);
+  cfg.socMaxAgeS = p.getUInt("iv_soc", DEF_SOC_MAX_AGE_S);
   cfg.fxMaxAgeS = p.getUInt("age_fx", DEF_FX_MAX_AGE_S);
+  cfg.indoorIntervalS = p.getUInt("iv_indoor", DEF_INDOOR_INTERVAL_S);
+
+  cfg.nightEnabled = p.getBool("night_on", DEF_NIGHT_ENABLED);
+  cfg.nightStartMin = p.getUShort("night_start", DEF_NIGHT_START_MIN);
+  cfg.nightEndMin = p.getUShort("night_end", DEF_NIGHT_END_MIN);
+  cfg.nightIntervalS = p.getUInt("iv_night", DEF_NIGHT_INTERVAL_S);
+
+  cfg.fullRefreshMin = p.getUShort("full_min", DEF_FULL_REFRESH_MIN);
+  cfg.maxPartials = p.getUShort("max_partial", DEF_MAX_PARTIALS);
 
   cfg.vbatLow = getFloatOr(p, "vbat_low", DEF_VBAT_LOW);
   cfg.vbatCrit = getFloatOr(p, "vbat_crit", DEF_VBAT_CRITICAL);
@@ -83,15 +95,24 @@ void save(const Config& cfg) {
   p.putString("wifi_pass", cfg.wifiPass);
   p.putString("tz", cfg.tz);
 
-  p.putUInt("iv_wake", cfg.wakeIntervalS);
   p.putUInt("wifi_to_ms", cfg.wifiTimeoutMs);
   p.putUInt("iv_sntp", cfg.sntpIntervalS);
-  p.putUShort("ota_every", cfg.otaEveryN);
+  p.putUShort("ota_hours", cfg.otaIntervalH);
 
   p.putUInt("age_weather", cfg.weatherMaxAgeS);
-  p.putUInt("age_outage", cfg.outageMaxAgeS);
-  p.putUInt("age_backup", cfg.backupMaxAgeS);
+  p.putUInt("iv_outage", cfg.outageMaxAgeS);
+  p.putUInt("iv_backup", cfg.backupMaxAgeS);
+  p.putUInt("iv_soc", cfg.socMaxAgeS);
   p.putUInt("age_fx", cfg.fxMaxAgeS);
+  p.putUInt("iv_indoor", cfg.indoorIntervalS);
+
+  p.putBool("night_on", cfg.nightEnabled);
+  p.putUShort("night_start", cfg.nightStartMin);
+  p.putUShort("night_end", cfg.nightEndMin);
+  p.putUInt("iv_night", cfg.nightIntervalS);
+
+  p.putUShort("full_min", cfg.fullRefreshMin);
+  p.putUShort("max_partial", cfg.maxPartials);
 
   p.putFloat("vbat_low", cfg.vbatLow);
   p.putFloat("vbat_crit", cfg.vbatCrit);

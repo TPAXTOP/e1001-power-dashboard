@@ -133,6 +133,9 @@ Result checkAndUpdate(const Config& cfg, const String& skipVersion) {
   }
 
   LOGI("ota", "updating %s -> %s (%u bytes) from %s", APP_VERSION, version, (unsigned)size, url);
+  // The shared request client may still hold a kept-alive connection on the
+  // same TLS client; this download uses its own HTTPClient.
+  net::closeAll();
   HTTPClient http;
   http.setTimeout(60000);
   http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);  // GitHub release assets redirect
@@ -164,6 +167,7 @@ Result checkAndUpdate(const Config& cfg, const String& skipVersion) {
   uint8_t sha[32];
   bool ok = download(http.getStream(), size, sha);
   http.end();
+  net::tlsClient().stop();  // not left open for the shared client to misuse
 
   char gotHex[65];
   toHex(sha, sizeof(sha), gotHex);

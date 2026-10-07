@@ -7,10 +7,16 @@
 
 namespace wake_cycle {
 
-// One full wake: time sync, conditional fetches, render, OTA check.
-// pageButton = woken by a white button (cycles power <-> fx page).
-// coldBoot = power-on/reset/flash (not a deep-sleep wake): forces SNTP.
-// Returns the number of seconds to deep-sleep afterwards.
-uint32_t run(Config& cfg, PersistedState& st, bool pageButton, bool coldBoot);
+struct Wake {
+  bool pageButton = false;     // white button: cycle power <-> fx page
+  bool refreshButton = false;  // green short press: fetch everything now, full refresh
+  bool coldBoot = false;       // power-on/reset/flash (not a deep-sleep wake)
+};
+
+// One wake: run whatever is due (sources, indoor sensor, OTA check), render,
+// refresh the panel only if the frame changed. WiFi is switched on only when
+// an online task is due. Returns the seconds to deep-sleep until the next
+// task, outage start/end, night edge or full hour.
+uint32_t run(Config& cfg, PersistedState& st, const Wake& wake);
 
 }  // namespace wake_cycle

@@ -14,10 +14,10 @@ struct StatusBarView {
   uint8_t severity = SEV_NONE;
   char message[72] = "";
 
-  char updated[6] = "";      // "HH:MM" of this render, "" when the clock is unknown
-  int batteryPercent = -1;   // -1 = unknown reading
+  uint8_t connectivity = 0;  // dash::Connectivity, icon left of the battery
+  int batteryPercent = -1;   // 5 % step, -1 = unknown reading
   bool hasSinceFull = false;
-  uint32_t sinceFullS = 0;   // time since the last full charge
+  uint32_t sinceFullS = 0;   // time since the last full charge (quantized)
   int drainPerDay = -1;      // % per 24 h since full, -1 = not enough data yet
 };
 

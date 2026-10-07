@@ -8,7 +8,15 @@
 #include <Arduino.h>
 #include <data_model.h>
 
-enum Source : uint8_t { SRC_WEATHER = 0, SRC_OUTAGE = 1, SRC_BACKUP = 2, SRC_FX = 3, SRC_COUNT = 4 };
+// SRC_BACKUP = Deye status tiles, SRC_SOC = Deye 24 h SOC graph (own cadence).
+enum Source : uint8_t {
+  SRC_WEATHER = 0,
+  SRC_OUTAGE = 1,
+  SRC_BACKUP = 2,
+  SRC_FX = 3,
+  SRC_SOC = 4,
+  SRC_COUNT = 5
+};
 
 struct PersistedState {
   uint32_t lastSuccessEpoch[SRC_COUNT];
@@ -16,6 +24,8 @@ struct PersistedState {
   uint32_t bootCount;
   uint16_t consecWifiFails;
   uint32_t lastOnlineEpoch;  // last wake with WiFi (status bar "No WiFi for ...")
+  uint32_t lastInternetEpoch;  // last wake where a request got an HTTP response
+  uint32_t lastOtaCheckEpoch;  // last periodic update check
   uint32_t lastFullEpoch;    // last wake with vbat >= vbatFull; 0 = never seen
   uint8_t lastPage;          // 0 = power, 1 = fx
   String otaTriedVersion;  // set just before rebooting into a new image
@@ -27,6 +37,8 @@ struct PersistedState {
 namespace state_store {
 
 void load(PersistedState& st);
+// Written on online wakes (and page switches) only: offline wakes can come
+// every few minutes, and their state lives in RTC RAM (rtc_state.h).
 void save(const PersistedState& st);
 
 // Cache blob IO. Returns false when absent, version-mismatched or corrupt.

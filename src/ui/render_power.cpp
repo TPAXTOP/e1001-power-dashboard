@@ -262,7 +262,7 @@ static void renderBackup(const PowerView& v) {
   printAt(u8g2_font_logisoso22_tf, load, 718, valBase);
 
   // 24h SOC graph
-  widgets::drawBatteryGraph(256, 264, b.history, b.historyCount);
+  widgets::drawBatteryGraph(256, 264, v.soc.points, v.hasSoc ? v.soc.count : 0);
 }
 
 // ---------------------------------------------------------------- entry

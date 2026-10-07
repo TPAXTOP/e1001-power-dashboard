@@ -2,6 +2,7 @@
 
 #include <ArduinoJson.h>
 #include <derive.h>
+#include <status.h>
 
 #include <vector>
 
@@ -141,9 +142,18 @@ static bool fetchLatest(const Config& cfg, PersistedState& st, dash::BackupData&
   return true;
 }
 
-static bool fetchHistory(const Config& cfg, PersistedState& st, dash::BackupData& out) {
+bool fetchSoc(const Config& cfg, PersistedState& st, dash::SocHistory& hist) {
+  if (!cfg.hasDeye()) return false;
+  if (!ensureToken(cfg, st)) return false;
+
+  // Incremental: only the part after the cached graph (30 min overlap, in
+  // case the last bucket was still filling), or the full 24 h on first use.
   uint32_t endTs = time_sync::nowEpoch();
   uint32_t startTs = endTs - 24 * 60 * 60;
+  if (hist.count > 0) {
+    uint32_t last = hist.points[hist.count - 1].epoch;
+    if (last > startTs + 1800 && last <= endTs) startTs = last - 1800;
+  }
 
   JsonDocument body;
   body["deviceSn"] = cfg.deyeDeviceSn;
@@ -163,7 +173,7 @@ static bool fetchHistory(const Config& cfg, PersistedState& st, dash::BackupData
 
   JsonArrayConst list = doc["dataList"].as<JsonArrayConst>();
   std::vector<dash::BatteryPoint> points;
-  points.reserve(512);
+  points.reserve(list.size());
   for (JsonObjectConst item : list) {
     double t;
     if (!numberFrom(item["time"], t) || t <= 0) continue;
@@ -180,29 +190,23 @@ static bool fetchHistory(const Config& cfg, PersistedState& st, dash::BackupData
     }
   }
 
-  if (points.empty()) {
+  if (points.empty() && list.size()) {
     // Diagnose unexpected payload shapes instead of silently drawing nothing.
     String sample;
-    if (list.size()) serializeJson(list[0], sample);
-    else serializeJson(doc, sample);
+    serializeJson(list[0], sample);
     if (sample.length() > 300) sample = sample.substring(0, 300) + "...";
     LOGW("deye", "history: no SOC points in %u entries (window %lu-%lu): %s",
          (unsigned)list.size(), (unsigned long)startTs, (unsigned long)endTs, sample.c_str());
   }
 
-  std::sort(points.begin(), points.end(),
-            [](const dash::BatteryPoint& a, const dash::BatteryPoint& b) {
-              return a.epoch < b.epoch;
-            });
-
-  int count = dash::downsampleHistory(points.data(), (int)points.size(), dash::kHistoryMax);
-  out.historyCount = count;
-  memcpy(out.history, points.data(), count * sizeof(dash::BatteryPoint));
-  LOGI("deye", "history: %u raw -> %d points", (unsigned)points.size(), count);
+  int before = hist.count;
+  dash::mergeSocHistory(hist, points.data(), (int)points.size(), endTs);
+  LOGI("deye", "history: %u raw since %lu -> %d points (was %d)", (unsigned)points.size(),
+       (unsigned long)startTs, hist.count, before);
   return true;
 }
 
-bool fetch(const Config& cfg, PersistedState& st, dash::BackupData& out) {
+bool fetchStatus(const Config& cfg, PersistedState& st, dash::BackupData& out) {
   if (!cfg.hasDeye()) {
     LOGW("deye", "not configured");
     return false;
@@ -219,12 +223,6 @@ bool fetch(const Config& cfg, PersistedState& st, dash::BackupData& out) {
     if (!fetchLatest(cfg, st, out)) return false;
   }
 
-  // History failure is non-fatal: current status still renders, graph is empty.
-  if (!fetchHistory(cfg, st, out)) {
-    LOGW("deye", "history fetch failed, rendering without graph");
-    out.historyCount = 0;
-  }
-
   out.chargingStatus =
       dash::chargingStatusFrom(out.hasBatteryPower, out.batteryPowerWatts);
   out.hasRuntime = false;
@@ -237,9 +235,11 @@ bool fetch(const Config& cfg, PersistedState& st, dash::BackupData& out) {
     }
   }
 
-  LOGI("deye", "ok: soc=%.0f%% grid=%d battW=%.0f loadW=%.0f status=%d", out.batteryPercent,
-       out.gridConnected, out.hasBatteryPower ? out.batteryPowerWatts : -999.0f,
-       out.hasLoadPower ? out.loadPowerWatts : -999.0f, out.chargingStatus);
+  LOGI("deye", "ok: soc=%.0f%% grid=%d battW=%.0f loadW=%.0f status=%d age=%lds",
+       out.batteryPercent, out.gridConnected,
+       out.hasBatteryPower ? out.batteryPowerWatts : -999.0f,
+       out.hasLoadPower ? out.loadPowerWatts : -999.0f, out.chargingStatus,
+       (long)(time_sync::nowEpoch() - out.lastUpdateEpoch));
   return true;
 }
 

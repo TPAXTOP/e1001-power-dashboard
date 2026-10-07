@@ -21,7 +21,7 @@ Releases are tag-driven. You never build or upload binaries by hand.
    - **publish** runs in the `release` environment. It signs `version.json` with `OTA_SIGNING_KEY`, re-verifies it
      against `certs/ota_signing_pub.pem`, attests build provenance, and publishes the GitHub release with the
      CHANGELOG section as its notes.
-4. Devices install it on their next check: cold boot, every `otaEveryN` wakes (about 12 h), or **Check for update
+4. Devices install it on their next check: cold boot, every 12 h (portal setting), or **Check for update
    now** in the portal.
 
 Release assets:

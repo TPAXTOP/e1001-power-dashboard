@@ -4,6 +4,9 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <algorithm>
+#include <vector>
+
 namespace dash {
 
 // ---------------------------------------------------------------- device battery
@@ -64,6 +67,30 @@ void formatDuration(uint32_t seconds, char* buf, int bufLen) {
   }
 }
 
+uint32_t quantizeAge(uint32_t seconds) {
+  if (seconds < 3600) {
+    uint32_t q = seconds - seconds % 300;
+    return q < 300 ? 300 : q;
+  }
+  if (seconds < 36000) return seconds - seconds % 1800;
+  return seconds - seconds % 3600;
+}
+
+int stickyBatteryStep(int rawPercent, int shownStep) {
+  if (rawPercent < 0) return -1;
+  int step = (rawPercent + 2) / 5 * 5;
+  if (shownStep < 0) return step;
+  int diff = rawPercent - shownStep;
+  if (diff < 0) diff = -diff;
+  return diff >= 4 ? step : shownStep;
+}
+
+int stickyRound(float raw, int shown, bool hasShown, float threshold) {
+  int r = (int)lroundf(raw);
+  if (!hasShown) return r;
+  return fabsf(raw - (float)shown) >= threshold - 1e-4f ? r : shown;  // float slack
+}
+
 // ---------------------------------------------------------------- weather
 
 int maxPrecipProb(const WeatherData& w, const char* nowLocalIso, int hours) {
@@ -109,18 +136,13 @@ static void hhmm(int minutes, char* buf, int bufLen) {
   snprintf(buf, bufLen, "%02d:%02d", minutes / 60, minutes % 60);
 }
 
-bool formatOutageStatus(const OutageSchedule& s, int nowMin, char* buf, int bufLen) {
-  if (s.today.present && strcmp(s.today.status, "EmergencyShutdowns") == 0) {
-    snprintf(buf, bufLen, "Emergency outages, schedule suspended");
-    return true;
-  }
-
-  Span spans[2 * kSlotsMax];
+// Definite outage spans of today and tomorrow (only days whose schedule
+// applies), sorted and with touching spans merged (a slot ending 24:00
+// continues into one starting at tomorrow 00:00). Returns the count.
+static int mergedSpans(const OutageSchedule& s, Span* spans) {
   int n = collectSpans(s.today, 0, spans, 0, 2 * kSlotsMax);
   n = collectSpans(s.tomorrow, 1440, spans, n, 2 * kSlotsMax);
 
-  // Sort by start, then merge touching spans (a slot ending 24:00 continues
-  // into one starting at tomorrow 00:00).
   for (int i = 1; i < n; i++) {
     Span v = spans[i];
     int j = i - 1;
@@ -138,6 +160,27 @@ bool formatOutageStatus(const OutageSchedule& s, int nowMin, char* buf, int bufL
       spans[m++] = spans[i];
     }
   }
+  return m;
+}
+
+static bool emergency(const OutageSchedule& s) {
+  return s.today.present && strcmp(s.today.status, "EmergencyShutdowns") == 0;
+}
+
+// Rounded up: 5-min steps within the hour, 10-min steps beyond.
+static uint32_t countdownMinutes(int minutes) {
+  int step = minutes <= 60 ? 5 : 10;
+  return (uint32_t)((minutes + step - 1) / step * step);
+}
+
+bool formatOutageStatus(const OutageSchedule& s, int nowMin, char* buf, int bufLen) {
+  if (emergency(s)) {
+    snprintf(buf, bufLen, "Emergency outages, schedule suspended");
+    return true;
+  }
+
+  Span spans[2 * kSlotsMax];
+  int m = mergedSpans(s, spans);
 
   char a[12], b[12];
   for (int i = 0; i < m; i++) {
@@ -152,7 +195,7 @@ bool formatOutageStatus(const OutageSchedule& s, int nowMin, char* buf, int bufL
     hhmm(sp.start, a, sizeof(a));
     if (sp.start < 1440) {
       char in[12];
-      formatDuration((uint32_t)(sp.start - nowMin) * 60, in, sizeof(in));
+      formatDuration(countdownMinutes(sp.start - nowMin) * 60, in, sizeof(in));
       snprintf(buf, bufLen, "Next outage %s-%s \xC2\xB7 in %s", a, b, in);
     } else {
       snprintf(buf, bufLen, "Outage tomorrow %s-%s", a, b);
@@ -160,6 +203,57 @@ bool formatOutageStatus(const OutageSchedule& s, int nowMin, char* buf, int bufL
     return true;
   }
   return false;
+}
+
+int nextOutageBoundaryMin(const OutageSchedule& s, int nowMin) {
+  if (emergency(s)) return -1;
+  Span spans[2 * kSlotsMax];
+  int m = mergedSpans(s, spans);
+  for (int i = 0; i < m; i++) {
+    if (spans[i].start > nowMin) return spans[i].start;
+    if (spans[i].end > nowMin) return spans[i].end;
+  }
+  return -1;
+}
+
+// ---------------------------------------------------------------- SOC history
+
+int mergeSocHistory(SocHistory& hist, const BatteryPoint* fresh, int freshCount, uint32_t now) {
+  int existing = hist.count > kHistoryMax ? kHistoryMax : hist.count;
+  std::vector<BatteryPoint> all;
+  all.reserve(existing + (freshCount > 0 ? freshCount : 0));
+  all.insert(all.end(), hist.points, hist.points + existing);
+  if (freshCount > 0) all.insert(all.end(), fresh, fresh + freshCount);
+  // Stable: for equal epochs the fresh point (inserted later) stays last.
+  std::stable_sort(all.begin(), all.end(), [](const BatteryPoint& a, const BatteryPoint& b) {
+    return a.epoch < b.epoch;
+  });
+
+  uint32_t cutoff = now > 86400 ? now - 86400 : 0;
+  size_t out = 0;
+  for (size_t i = 0; i < all.size(); i++) {
+    const BatteryPoint p = all[i];
+    if (p.epoch < cutoff || p.epoch > now + 3600) continue;  // too old / clock nonsense
+    if (out > 0 && all[out - 1].epoch / kSocBucketS == p.epoch / kSocBucketS) {
+      all[out - 1] = p;  // newest value per bucket
+    } else {
+      all[out++] = p;
+    }
+  }
+  size_t first = out > (size_t)kHistoryMax ? out - kHistoryMax : 0;
+  hist.count = (uint8_t)(out - first);
+  for (int i = 0; i < hist.count; i++) hist.points[i] = all[first + i];
+  return hist.count;
+}
+
+// ---------------------------------------------------------------- connectivity
+
+Connectivity classifyConnectivity(bool wifiUp, int attempts, int responses, int transportErrors,
+                                  Connectivity previous) {
+  if (!wifiUp) return CONN_NO_WIFI;
+  if (responses > 0) return CONN_OK;
+  if (attempts > 0 && transportErrors > 0) return CONN_NO_INTERNET;
+  return previous == CONN_NO_WIFI ? CONN_UNKNOWN : previous;
 }
 
 }  // namespace dash

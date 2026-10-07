@@ -16,13 +16,13 @@ static U8G2_FOR_ADAFRUIT_GFX& f() { return display::u8g2(); }
 
 static const int kMidY = kTop + 16;  // vertical center of the 28px content area
 
-// Right block, right-aligned at x=792: [clock] HH:MM | [batt] 80% · 3d 4h · 6%/d
+// Right block, right-aligned at x=792: [wifi] [batt] 80% · 3d 4h · 6%/d
 // Returns the x where the block starts.
 static int renderRight(const StatusBarView& v) {
   char text[40];
   int n;
   if (v.batteryPercent >= 0) {
-    n = snprintf(text, sizeof(text), "%d%%", (v.batteryPercent + 2) / 5 * 5);  // 5% steps hide ADC jitter
+    n = snprintf(text, sizeof(text), "%d%%", v.batteryPercent);  // already a 5 % step
   } else {
     n = snprintf(text, sizeof(text), "--%%");
   }
@@ -44,13 +44,9 @@ static int renderRight(const StatusBarView& v) {
   x -= 6 + 24;
   widgets::drawMiniBattery(x, kMidY - 5, v.batteryPercent);
 
-  if (v.updated[0]) {
-    x -= 14 + f().getUTF8Width(v.updated);
-    f().setCursor(x, baseline);
-    f().print(v.updated);
-    x -= 6 + 5;
-    widgets::drawClockIcon(x, kMidY, 5);
-    x -= 5;
+  if (v.connectivity != dash::CONN_UNKNOWN) {
+    x -= 12 + widgets::kWifiIconW;
+    widgets::drawWifiIcon(x, kMidY, v.connectivity);
   }
   return x;
 }

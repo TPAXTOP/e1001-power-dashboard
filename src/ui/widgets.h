@@ -23,7 +23,11 @@ void drawWeatherIcon(dash::WeatherIcon icon, int x, int y, int size);
 void drawUmbrellaIcon(int x, int y, int size);
 void drawHouseIcon(int x, int y, int size);
 void drawDropIcon(int x, int y, int size);
-void drawClockIcon(int cx, int cy, int r);
+// Status-bar connectivity, kWifiIconW wide, centered on yCenter. state is a
+// dash::Connectivity: arcs (OK), arcs + "!" badge (no internet), arcs with a
+// slash (no WiFi).
+constexpr int kWifiIconW = 30;
+void drawWifiIcon(int x, int yCenter, uint8_t state);
 // 24x11 status-bar battery (22x11 body + nub); pct < 0 = unknown (empty).
 void drawMiniBattery(int x, int y, int pct);
 

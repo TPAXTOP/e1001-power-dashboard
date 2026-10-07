@@ -114,7 +114,9 @@ After the upload, the screen shows **FIRST TIME SETUP**, and the log ends with
    | Portal field | Value |
    |---|---|
    | WiFi SSID / Password | Your home WiFi. **It must be 2.4 GHz**, because the ESP32 can't see 5 GHz-only networks |
-   | Wake interval | `600` (10 min) is the default. Use `300` while outages are active, which gives about 10 days on battery instead of about 3 weeks |
+   | Refresh intervals | Defaults are fine: inverter status 180 s, battery graph 900 s, outage schedule 600 s, weather 1800 s, indoor sensor 180 s. WiFi is only switched on when one of them is due |
+   | Night mode | On, 03:00–08:00 by default: everything refreshes at most every 15 min. Untick it if you want full speed around the clock |
+   | Screen | A full refresh (the black/white flash that clears ghosting) at most every `60` min or after `30` partial refreshes. Raise them if the flashing bothers you, lower them if ghosting does |
    | Yasno group | Your **current** group, e.g. `29.1`. Yasno renumbered Kyiv groups (the old `3.2` no longer exists). Check your address on yasno.ua |
    | Deye App ID | `DEYE_APP_ID` |
    | Deye App Secret | `DEYE_APP_SECRET` |
@@ -124,7 +126,7 @@ After the upload, the screen shows **FIRST TIME SETUP**, and the log ends with
    | Battery capacity (Wh) | `5120` unless your battery differs (used for the runtime estimate) |
    | exchangerate.host API key | `EXCHANGERATE_API_KEY` |
    | Update manifest URL | Leave empty. Empty means this project's latest signed release |
-   | Check for updates every N wakes | `72` (about 12 h at a 10-min interval). `0` turns automatic updates off |
+   | Check for updates every N hours | `12`. `0` checks only at power-on |
    | Indoor climate, Device battery | Defaults are fine. If the indoor temperature reads high or low, set an offset later; the line at the top of the portal shows raw sensor and battery readings |
 
 4. Click **Save & Reboot**. The device joins your WiFi, fetches everything, and draws the dashboard within about

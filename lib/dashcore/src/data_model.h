@@ -10,10 +10,10 @@
 
 namespace dash {
 
-constexpr uint8_t kCacheVersion = 2;
+constexpr uint8_t kCacheVersion = 3;
 
 constexpr int kHourlyMax = 8;     // Open-Meteo forecast_hours
-constexpr int kHistoryMax = 96;   // battery graph points (15-min x 24h)
+constexpr int kHistoryMax = 96;   // SOC graph points (15-min buckets x 24h)
 constexpr int kSlotsMax = 24;     // outage slots per day
 constexpr int kFxMax = 31;        // 29-day FX history + margin
 
@@ -101,8 +101,13 @@ struct BackupData {
   uint8_t chargingStatus;     // ChargingStatus
   bool hasRuntime;
   int32_t estimatedRuntimeMin;
-  uint8_t historyCount;
-  BatteryPoint history[kHistoryMax];
+};
+
+// 24 h battery SOC graph. Fetched separately from BackupData and less often:
+// the status tiles change every few minutes, the graph only per 15-min bucket.
+struct SocHistory {
+  uint8_t count;
+  BatteryPoint points[kHistoryMax];  // oldest first, one per 15-min bucket
 };
 
 // ---------------------------------------------------------------- fx
