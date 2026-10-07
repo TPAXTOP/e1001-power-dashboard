@@ -24,8 +24,11 @@ built-in battery.
 - **Weather** from [Open-Meteo](https://open-meteo.com): current conditions, chance of rain over the next 3 h, and
   a 6-hour forecast. Indoor temperature and humidity come from the onboard sensor.
 - **USD/UAH** 30-day chart on a second page (white buttons), via exchangerate.host.
-- **Built for the battery:** one full e-paper refresh per wake, a separate refresh cadence per source, and
-  last-known-good data cached in flash with a "!" badge when a fetch fails.
+- **Built for the battery:** each source has its own refresh cadence and WiFi only comes on when one is due. The
+  screen is redrawn only when something on it changed, with a flicker-free partial refresh and a periodic full
+  refresh against ghosting. Last-known-good data is cached in flash and shown with a "!" badge when fetches fail.
+- **Connectivity at a glance:** a WiFi icon in the status bar, plus "No WiFi", "No internet" (WiFi up, nothing
+  reachable) and "Inverter offline" (Deye cloud answers, but the logger stopped reporting) notices.
 - **No reflash for settings:** WiFi, Yasno group, credentials, intervals and widgets are all set in a web portal on
   the device.
 - **Safe automatic updates:** signed releases from this repo, hash and signature checked on the device, and an
@@ -85,15 +88,21 @@ git push origin main --follow-tags
 
 | Button | Asleep | Awake (USB stay-awake mode) |
 |---|---|---|
-| Green (top), short press | refresh now | — |
+| Green (top), short press | fetch everything now + full refresh | — |
 | Green (top), hold ~1.5 s | maintenance portal | — |
 | White left/right | toggle power ⇄ FX page | toggle page |
 
 ## Power budget (2000 mAh battery)
 
-Each cycle keeps the device awake for roughly 15–25 s (WiFi, up to 4 TLS fetches, a 4–5 s e-paper refresh). That
-works out to about 10–12 days at a 5-min interval and about 3 weeks at 10 min. Below 3.45 V the firmware stretches
-the interval ×4. Below 3.30 V it shows "battery empty" and sleeps until a button press.
+WiFi plus TLS is what costs battery, not the wake itself or the panel. So the device wakes whenever a task is due
+but switches WiFi on only for data sources: the inverter status every 3 min, the outage schedule every 10 min,
+the battery graph every 15 min (fetching only the new part), weather every 30 min. Indoor readings, outage
+start/end and the full hour are offline wakes that cost well under a second of CPU time. The panel is only
+touched when the frame changed, mostly as a partial refresh (~0.5 s, no flashing).
+
+Rough estimate with the defaults and the 03:00–08:00 night mode: 35–60 mAh per day, so about 4–7 weeks on the
+2000 mAh battery (not yet measured; the status bar shows the real drain per day). Below 3.45 V the firmware
+stretches every interval ×4. Below 3.30 V it shows "battery empty" and sleeps until a button press.
 
 ## Repository layout
 

@@ -3,8 +3,9 @@
 #include <data_model.h>
 
 // Everything the power screen needs, assembled by the wake cycle.
-// "has" = data (fresh or cached) exists; "stale" = this wake's refresh failed
-// and the cached copy is shown (renders the "!" badge, like the web app).
+// "has" = data (fresh or cached) exists; "stale" = the data is older than its
+// refresh cadence allows (fetches failing), the cached copy is shown with the
+// "!" badge (like the web app).
 struct PowerView {
   bool hasWeather = false;
   bool weatherStale = false;
@@ -17,8 +18,11 @@ struct PowerView {
   char outageError[48] = "";  // why there is no outage data (shown when !hasOutage)
 
   bool hasBackup = false;
-  bool backupStale = false;
+  bool backupStale = false;   // our fetch is failing, or the inverter stopped reporting
   dash::BackupData backup;
+
+  bool hasSoc = false;
+  dash::SocHistory soc;       // 24 h graph, own (slower) refresh cadence
 
   // Onboard SHT4x, offsets already applied. "Out" = outside the configured
   // comfort range -> drawn inverted.

@@ -8,6 +8,7 @@
 #include <algorithm>
 
 #include "display.h"
+#include <status.h>
 
 namespace widgets {
 
@@ -173,10 +174,31 @@ void drawDropIcon(int x, int y, int size) {
   g().fillTriangle(cx, y, cx - r, cy, cx + r, cy, GxEPD_BLACK);
 }
 
-void drawClockIcon(int cx, int cy, int r) {
-  g().drawCircle(cx, cy, r, GxEPD_BLACK);
-  g().drawFastVLine(cx, cy - r + 2, r - 1, GxEPD_BLACK);
-  g().drawFastHLine(cx, cy, r - 2, GxEPD_BLACK);
+void drawWifiIcon(int x, int yCenter, uint8_t state) {
+  // Three 90-degree arcs (2 px) over a dot, 18x14, apex at the bottom.
+  const int cx = x + 9, cy = yCenter + 7;
+  const float kPi = 3.14159265f;
+  for (int r = 5; r <= 13; r += 4) {
+    for (int a = 0; a <= 32; a++) {
+      float ang = kPi * (1.25f + 0.5f * a / 32.0f);  // 225..315 deg, up
+      int px = cx + (int)lroundf(cosf(ang) * r);
+      int py = cy + (int)lroundf(sinf(ang) * r);
+      g().fillRect(px, py, 2, 2, GxEPD_BLACK);
+    }
+  }
+  g().fillCircle(cx, cy - 1, 2, GxEPD_BLACK);
+
+  if (state == dash::CONN_NO_WIFI) {
+    // White-edged slash so it stays readable across the arcs.
+    thickLine(x + 1, yCenter - 7, x + 18, yCenter + 8, 5, GxEPD_WHITE);
+    thickLine(x + 1, yCenter - 7, x + 18, yCenter + 8, 2, GxEPD_BLACK);
+  } else if (state == dash::CONN_NO_INTERNET) {
+    // small "!" badge to the right, like the stale-data badge
+    int bx = x + 23, r = 6;
+    g().fillCircle(bx, yCenter, r, GxEPD_BLACK);
+    g().fillRect(bx - 1, yCenter - 4, 2, 5, GxEPD_WHITE);
+    g().fillRect(bx - 1, yCenter + 2, 2, 2, GxEPD_WHITE);
+  }
 }
 
 void drawMiniBattery(int x, int y, int pct) {

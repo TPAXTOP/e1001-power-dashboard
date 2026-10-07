@@ -10,15 +10,24 @@ struct Config {
   String wifiPass;
   String tz;
 
-  uint32_t wakeIntervalS;
   uint32_t wifiTimeoutMs;
   uint32_t sntpIntervalS;
-  uint16_t otaEveryN;
+  uint16_t otaIntervalH;  // 0 = no periodic update check
 
   uint32_t weatherMaxAgeS;
   uint32_t outageMaxAgeS;
-  uint32_t backupMaxAgeS;
+  uint32_t backupMaxAgeS;  // Deye status tiles
+  uint32_t socMaxAgeS;     // Deye SOC graph
   uint32_t fxMaxAgeS;
+  uint32_t indoorIntervalS;
+
+  bool nightEnabled;
+  uint16_t nightStartMin;  // minutes since local midnight
+  uint16_t nightEndMin;
+  uint32_t nightIntervalS;
+
+  uint16_t fullRefreshMin;  // 0 = no time-based full refresh
+  uint16_t maxPartials;     // 0 = no count-based full refresh
 
   float vbatLow;
   float vbatCrit;

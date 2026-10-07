@@ -8,7 +8,7 @@ namespace state_store {
 
 static const char* kStateNs = "state";
 static const char* kCacheNs = "cache";
-static const char* kBlobKeys[SRC_COUNT] = {"weather", "outage", "backup", "fx"};
+static const char* kBlobKeys[SRC_COUNT] = {"weather", "outage", "backup", "fx", "soc"};
 
 struct BlobHeader {
   uint8_t version;
@@ -22,10 +22,13 @@ void load(PersistedState& st) {
   st.lastSuccessEpoch[SRC_OUTAGE] = p.getUInt("ok_outage", 0);
   st.lastSuccessEpoch[SRC_BACKUP] = p.getUInt("ok_backup", 0);
   st.lastSuccessEpoch[SRC_FX] = p.getUInt("ok_fx", 0);
+  st.lastSuccessEpoch[SRC_SOC] = p.getUInt("ok_soc", 0);
   st.lastSntpEpoch = p.getUInt("sntp_last", 0);
   st.bootCount = p.getUInt("boot_count", 0);
   st.consecWifiFails = p.getUShort("wifi_fails", 0);
   st.lastOnlineEpoch = p.getUInt("online_last", 0);
+  st.lastInternetEpoch = p.getUInt("inet_last", 0);
+  st.lastOtaCheckEpoch = p.getUInt("ota_last", 0);
   st.lastFullEpoch = p.getUInt("full_last", 0);
   st.lastPage = p.getUChar("last_page", 0);
   // isKey first: a missing string key logs an [E] line (new keys in 0.3.0).
@@ -43,10 +46,13 @@ void save(const PersistedState& st) {
   p.putUInt("ok_outage", st.lastSuccessEpoch[SRC_OUTAGE]);
   p.putUInt("ok_backup", st.lastSuccessEpoch[SRC_BACKUP]);
   p.putUInt("ok_fx", st.lastSuccessEpoch[SRC_FX]);
+  p.putUInt("ok_soc", st.lastSuccessEpoch[SRC_SOC]);
   p.putUInt("sntp_last", st.lastSntpEpoch);
   p.putUInt("boot_count", st.bootCount);
   p.putUShort("wifi_fails", st.consecWifiFails);
   p.putUInt("online_last", st.lastOnlineEpoch);
+  p.putUInt("inet_last", st.lastInternetEpoch);
+  p.putUInt("ota_last", st.lastOtaCheckEpoch);
   p.putUInt("full_last", st.lastFullEpoch);
   p.putUChar("last_page", st.lastPage);
   p.putString("ota_tried", st.otaTriedVersion);

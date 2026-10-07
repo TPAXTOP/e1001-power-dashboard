@@ -7,6 +7,41 @@ newest published (non-pre)release; see [docs/RELEASING.md](docs/RELEASING.md).
 
 ## [Unreleased]
 
+### Added
+- Partial screen refresh. The screen is only redrawn when something on it changed, and then with a fast,
+  flicker-free partial refresh (~0.5 s) instead of the black/white flash. A full refresh still clears ghosting
+  at most every 60 min or after 30 partial refreshes (both configurable), on a page switch, when the night
+  ends, below 12 °C indoors, and on the green button.
+- Per-source schedule instead of one wake interval. Each source has its own interval, and WiFi is only switched
+  on when one of them is due:
+  - inverter status (battery, grid, charge, load): every 3 min
+  - inverter 24 h battery graph: every 15 min, fetching only the part since the last update
+  - outage schedule: every 10 min
+  - weather: every 30 min
+  - indoor sensor: every 3 min, without WiFi
+  The device also wakes (offline) exactly at outage start/end and on the full hour.
+- Night mode, 03:00–08:00 by default: everything refreshes at most every 15 min and there is no hourly full
+  refresh. Start, end and interval are configurable, and it can be switched off.
+- Connectivity in the status bar: a WiFi icon (crossed out without WiFi, with "!" when WiFi is up but nothing on
+  the internet answers), and "No internet for …" and "Inverter offline for …" notices. The latter means Deye
+  cloud answers, but the inverter's data logger stopped reporting.
+- Green button short press now fetches everything immediately and forces a full refresh.
+
+### Changed
+- The refresh time ("updated HH:MM") is no longer shown in the status bar.
+- Durations in the status bar move in 5-min / 30-min / 1-hour steps, the outage countdown in 5-min (under an
+  hour) and 10-min steps, and the device battery and indoor values have hysteresis, so they don't force a
+  redraw on every wake.
+- Faster online wakes: WiFi reconnects with the last access point and channel (no scan), consecutive requests to
+  the same server reuse the TLS connection, and WiFi is off during the panel refresh.
+- Update checks run every 12 h (portal setting in hours) plus at power-on, instead of every N wakes.
+- Portal: "Wake interval" and the old max-age fields are replaced by the per-source intervals, night mode and
+  screen settings above. The outage and inverter intervals start from the new defaults (10 min, 3 min) even if
+  they were saved before.
+- Offline wakes don't write flash; their state is kept in RTC memory.
+- The cache format changed (the SOC graph is cached separately), so the first wake after the update fetches
+  everything again.
+
 ## [0.3.0] - 2026-10-07
 
 ### Added

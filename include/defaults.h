@@ -8,18 +8,36 @@
 // POSIX TZ for Europe/Kyiv with EU DST rules
 #define DEF_TZ "EET-2EEST,M3.5.0/3,M10.5.0/4"
 
-// Wake cadence (seconds). Battery-first design: full deep sleep between wakes.
-#define DEF_WAKE_INTERVAL_S 600         // 10 min; 300 for fresher outage data
+// Wake cadence. There is no fixed wake interval: the device sleeps until the
+// next task is due (per-source intervals below, indoor sensor, outage start/
+// end, top of the hour, night window edges). Deep sleep between wakes.
 #define DEF_WIFI_TIMEOUT_MS 12000
 #define DEF_SNTP_INTERVAL_S 21600       // resync wall clock every 6 h
-#define DEF_OTA_EVERY_N_WAKES 72        // ~12 h at the 10-min default
+#define DEF_OTA_INTERVAL_H 12           // update check (plus every cold boot); 0 = never
 
-// Per-source max ages (seconds) - a source is only re-fetched when its last
-// success is older than this, regardless of wake cadence.
+// Per-source refresh intervals (seconds). WiFi is only switched on when one of
+// them is due; whatever else is due within 2 minutes rides along.
 #define DEF_WEATHER_MAX_AGE_S 1800
-#define DEF_OUTAGE_MAX_AGE_S 300
-#define DEF_BACKUP_MAX_AGE_S 300
+#define DEF_OUTAGE_MAX_AGE_S 600
+#define DEF_BACKUP_MAX_AGE_S 180        // Deye status tiles (battery, grid, charge, load)
+#define DEF_SOC_MAX_AGE_S 900           // Deye 24 h SOC graph (incremental fetch)
 #define DEF_FX_MAX_AGE_S 43200
+#define DEF_INDOOR_INTERVAL_S 180       // SHT4x re-read; no WiFi needed
+
+// Night window (minutes since local midnight): every task runs at most once
+// per DEF_NIGHT_INTERVAL_S, and no hourly full refresh.
+#define DEF_NIGHT_ENABLED true
+#define DEF_NIGHT_START_MIN 180         // 03:00
+#define DEF_NIGHT_END_MIN 480           // 08:00
+#define DEF_NIGHT_INTERVAL_S 900
+
+// Panel refresh: changed frames use a fast partial refresh (no flashing); a
+// full refresh clears ghosting at most this often (0 = only on other triggers).
+#define DEF_FULL_REFRESH_MIN 60
+#define DEF_MAX_PARTIALS 30             // full refresh after this many partials (0 = no limit)
+
+// Inverter data older than this while Deye cloud answers = the logger is offline.
+#define DEF_INVERTER_STALE_S 600
 
 // Battery policy (volts at the cell, after the ADC divider correction)
 #define DEF_VBAT_LOW 3.45f              // stretch wake interval x4 below this

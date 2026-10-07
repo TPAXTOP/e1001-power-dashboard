@@ -3,8 +3,11 @@
 // Boot dispatch:
 //   - first boot (no WiFi creds)      -> provisioning portal (SoftAP)
 //   - green button held ~1.5 s        -> maintenance portal
+//   - green button short press        -> fetch everything now + full refresh
 //   - white button wake               -> cycle page, then normal wake cycle
 //   - timer / cold boot               -> normal wake cycle -> deep sleep
+// A wake cycle only switches WiFi on when a data source is due; the other
+// wakes (indoor sensor, outage start/end, full hour) stay offline.
 #include <Arduino.h>
 #include <Wire.h>
 
@@ -46,7 +49,7 @@ void setup() {
 
   power_mgmt::WakeCause cause = power_mgmt::wakeCause();
   int wakeBtn = power_mgmt::wakeButtonGpio();
-  bool pageButton = false;
+  wake_cycle::Wake wake;
 
   if (cause == power_mgmt::WAKE_BUTTON) {
     if (wakeBtn == BTN_GREEN_PIN) {
@@ -64,22 +67,22 @@ void setup() {
         digitalWrite(LED_GREEN_PIN, LOW);  // confirm: LED on while in portal
         maintenance::run(cfg, false);      // never returns
       }
+      wake.refreshButton = true;
     } else if (wakeBtn == BTN_RIGHT_PIN || wakeBtn == BTN_LEFT_PIN) {
-      pageButton = true;
+      wake.pageButton = true;
     }
   }
 
   PersistedState st;
   state_store::load(st);
   ota_pull::noteBootedVersion(st);
-  bool coldBoot = cause == power_mgmt::WAKE_COLD;
-  if (coldBoot) power_mgmt::logI2cDevices();
+  wake.coldBoot = cause == power_mgmt::WAKE_COLD;
+  if (wake.coldBoot) power_mgmt::logI2cDevices();
 
   int verifyRetries = 0;
   while (true) {
-    uint32_t sleepS = wake_cycle::run(cfg, st, pageButton, coldBoot);
-    pageButton = false;
-    coldBoot = false;
+    uint32_t sleepS = wake_cycle::run(cfg, st, wake);
+    wake = wake_cycle::Wake();
 
     // Deep sleep would reset a still-unconfirmed new image into a rollback.
     // A WiFi hiccup should not cost the update, so retry a few times first.
@@ -96,7 +99,7 @@ void setup() {
       uint32_t until = millis() + sleepS * 1000UL;
       while (millis() < until) {
         if (digitalRead(BTN_RIGHT_PIN) == LOW || digitalRead(BTN_LEFT_PIN) == LOW) {
-          pageButton = true;
+          wake.pageButton = true;
           break;
         }
         delay(50);

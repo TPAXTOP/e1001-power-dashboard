@@ -67,6 +67,21 @@ static void addText(String& html, const char* name, const char* label, const Str
   html += "'></label>";
 }
 
+static String hhmm(uint16_t minutes) {
+  char buf[6];
+  snprintf(buf, sizeof(buf), "%02u:%02u", (unsigned)(minutes / 60 % 24), (unsigned)(minutes % 60));
+  return String(buf);
+}
+
+// "HH:MM" -> minutes since midnight; keeps `fallback` for anything else.
+static uint16_t parseHhmm(const String& s, uint16_t fallback) {
+  int colon = s.indexOf(':');
+  if (colon < 1) return fallback;
+  int h = s.substring(0, colon).toInt(), m = s.substring(colon + 1).toInt();
+  if (h < 0 || h > 23 || m < 0 || m > 59) return fallback;
+  return (uint16_t)(h * 60 + m);
+}
+
 static void addNum(String& html, const char* name, const char* label, uint32_t value) {
   addText(html, name, label, String(value), "number");
 }
@@ -137,7 +152,8 @@ static void handleRoot() {
       "body{font-family:system-ui;max-width:640px;margin:1em auto;padding:0 1em;background:#f4f4f4}"
       "h1{font-size:1.3em}h2{font-size:1.05em;margin:1.2em 0 .4em;border-bottom:2px solid #000}"
       "label{display:block;margin:.5em 0;font-size:.9em}"
-      "input[type=text],input[type=password],input[type=number]{width:100%;padding:.4em;"
+      "input[type=text],input[type=password],input[type=number],input[type=time]{width:100%;"
+      "padding:.4em;"
       "border:1px solid #999;border-radius:4px;box-sizing:border-box}"
       ".chk input{margin-right:.5em}button{padding:.6em 1.4em;font-size:1em;margin:.6em .4em 0 0}"
       "</style></head><body><h1>E-Paper Dashboard ";
@@ -150,12 +166,26 @@ static void handleRoot() {
   addText(html, "wifi_ssid", "SSID", c.wifiSsid);
   addText(html, "wifi_pass", "Password", c.wifiPass, "password");
 
-  html += "<h2>Schedule (seconds)</h2>";
-  addNum(html, "iv_wake", "Wake interval (refresh cadence)", c.wakeIntervalS);
-  addNum(html, "age_outage", "Outage data max age", c.outageMaxAgeS);
-  addNum(html, "age_backup", "Backup power max age", c.backupMaxAgeS);
-  addNum(html, "age_weather", "Weather max age", c.weatherMaxAgeS);
-  addNum(html, "age_fx", "FX max age", c.fxMaxAgeS);
+  html += "<h2>Refresh intervals (seconds)</h2>";
+  addNum(html, "iv_backup", "Inverter status: battery, grid, charge, load", c.backupMaxAgeS);
+  addNum(html, "iv_soc", "Inverter 24 h battery graph", c.socMaxAgeS);
+  addNum(html, "iv_outage", "Outage schedule", c.outageMaxAgeS);
+  addNum(html, "age_weather", "Weather", c.weatherMaxAgeS);
+  addNum(html, "iv_indoor", "Indoor sensor (no WiFi needed)", c.indoorIntervalS);
+  addNum(html, "age_fx", "Exchange rate", c.fxMaxAgeS);
+
+  html += "<h2>Night mode</h2>";
+  addCheck(html, "night_on", "Refresh less often at night", c.nightEnabled);
+  addText(html, "night_start", "Night starts (HH:MM)", hhmm(c.nightStartMin), "time");
+  addText(html, "night_end", "Night ends (HH:MM)", hhmm(c.nightEndMin), "time");
+  addNum(html, "iv_night", "At night, refresh everything at most every N seconds",
+         c.nightIntervalS);
+
+  html += "<h2>Screen</h2>";
+  addNum(html, "full_min",
+         "Full refresh (clears ghosting, flashes) at most every N minutes (0 = off)",
+         c.fullRefreshMin);
+  addNum(html, "max_partial", "...or after N partial refreshes (0 = no limit)", c.maxPartials);
 
   html += "<h2>Power outage (Yasno)</h2>";
   addText(html, "yasno_group",
@@ -177,7 +207,8 @@ static void handleRoot() {
   html += "<h2>Updates</h2>";
   addText(html, "ota_url", "Update manifest URL (version.json; empty = project default)",
           c.otaManifestUrl);
-  addNum(html, "ota_every", "Check for updates every N wakes (0 = never)", c.otaEveryN);
+  addNum(html, "ota_hours", "Check for updates every N hours (0 = only at power-on)",
+         c.otaIntervalH);
 
   html += "<h2>Indoor climate</h2>";
   addFloat(html, "in_t_off", "Temperature offset (&deg;C, added to the sensor)", c.indoorTempOffset);
@@ -228,12 +259,26 @@ static void handleSave() {
   // Not trimmed: spaces are legal in a WPA passphrase.
   if (server.hasArg("wifi_pass")) c.wifiPass = server.arg("wifi_pass");
 
-  c.wakeIntervalS = arg("iv_wake", String(c.wakeIntervalS)).toInt();
-  c.outageMaxAgeS = arg("age_outage", String(c.outageMaxAgeS)).toInt();
-  c.backupMaxAgeS = arg("age_backup", String(c.backupMaxAgeS)).toInt();
-  c.weatherMaxAgeS = arg("age_weather", String(c.weatherMaxAgeS)).toInt();
-  c.fxMaxAgeS = arg("age_fx", String(c.fxMaxAgeS)).toInt();
-  if (c.wakeIntervalS < 60) c.wakeIntervalS = 60;
+  // Intervals below a minute would only burn battery; 0 is not allowed either
+  // (it would disable the source).
+  auto interval = [&](const char* name, uint32_t current) {
+    long v = arg(name, String(current)).toInt();
+    return (uint32_t)(v < 60 ? 60 : v);
+  };
+  c.backupMaxAgeS = interval("iv_backup", c.backupMaxAgeS);
+  c.socMaxAgeS = interval("iv_soc", c.socMaxAgeS);
+  c.outageMaxAgeS = interval("iv_outage", c.outageMaxAgeS);
+  c.weatherMaxAgeS = interval("age_weather", c.weatherMaxAgeS);
+  c.indoorIntervalS = interval("iv_indoor", c.indoorIntervalS);
+  c.fxMaxAgeS = interval("age_fx", c.fxMaxAgeS);
+
+  c.nightEnabled = server.hasArg("night_on");
+  c.nightStartMin = parseHhmm(arg("night_start", ""), c.nightStartMin);
+  c.nightEndMin = parseHhmm(arg("night_end", ""), c.nightEndMin);
+  c.nightIntervalS = interval("iv_night", c.nightIntervalS);
+
+  c.fullRefreshMin = arg("full_min", String(c.fullRefreshMin)).toInt();
+  c.maxPartials = arg("max_partial", String(c.maxPartials)).toInt();
 
   c.yasnoGroup = arg("yasno_group", c.yasnoGroup);
 
@@ -251,7 +296,7 @@ static void handleSave() {
 
   c.fxApiKey = arg("fx_key", c.fxApiKey);
   c.otaManifestUrl = arg("ota_url", c.otaManifestUrl);
-  c.otaEveryN = arg("ota_every", String(c.otaEveryN)).toInt();
+  c.otaIntervalH = arg("ota_hours", String(c.otaIntervalH)).toInt();
 
   c.indoorTempOffset = arg("in_t_off", String(c.indoorTempOffset)).toFloat();
   c.indoorRhOffset = arg("in_rh_off", String(c.indoorRhOffset)).toFloat();
