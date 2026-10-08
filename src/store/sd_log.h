@@ -37,6 +37,12 @@ State state();
 // Writes the buffered lines and the wake row. Without a card: drops them.
 State flush();
 
+// Before the panel uses the shared SCK/MOSI: an inserted but unpowered card
+// clamps them through its protection diodes (to its dead supply), and the
+// panel then receives noise. Powers an inserted card, deselected, until
+// prepareSleep(). No-op without a card.
+void powerForBus();
+
 // Before deep sleep: card power off and held off while sleeping.
 void prepareSleep();
 

@@ -6,6 +6,7 @@
 #include <esp_random.h>
 
 #include "../../include/pins.h"
+#include "../store/sd_log.h"
 #include "../util/crc32.h"
 #include "../util/log.h"
 
@@ -76,6 +77,7 @@ uint32_t frameCrc() {
 // refresh is a full one (the panel content is unknown).
 static void panelInit(bool initial) {
   if (panelUp) return;
+  sd_log::powerForBus();  // an unpowered card on SCK/MOSI garbles the panel's data
   hspi.end();  // the SD log may have left the bus begun with its MISO pin
   // GxEPD2 does digitalWrite() before pinMode() on CS/DC/RST, which core 3.x
   // logs as an error for a pin not yet claimed as GPIO. Claim them first;
