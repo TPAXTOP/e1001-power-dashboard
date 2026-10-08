@@ -8,7 +8,12 @@ namespace state_store {
 
 static const char* kStateNs = "state";
 static const char* kCacheNs = "cache";
-static const char* kBlobKeys[SRC_COUNT] = {"weather", "outage", "backup", "fx", "soc"};
+static const char* kBlobKeys[SRC_COUNT] = {"weather", "outage", "backup", "fx", "soc", "alert"};
+
+// Preferences::getFloat() logs an [E] line for a key that was never saved.
+static float getFloatOr(Preferences& p, const char* key, float def) {
+  return p.isKey(key) ? p.getFloat(key, def) : def;
+}
 
 struct BlobHeader {
   uint8_t version;
@@ -23,13 +28,18 @@ void load(PersistedState& st) {
   st.lastSuccessEpoch[SRC_BACKUP] = p.getUInt("ok_backup", 0);
   st.lastSuccessEpoch[SRC_FX] = p.getUInt("ok_fx", 0);
   st.lastSuccessEpoch[SRC_SOC] = p.getUInt("ok_soc", 0);
+  st.lastSuccessEpoch[SRC_ALERT] = p.getUInt("ok_alert", 0);
   st.lastSntpEpoch = p.getUInt("sntp_last", 0);
   st.bootCount = p.getUInt("boot_count", 0);
   st.consecWifiFails = p.getUShort("wifi_fails", 0);
   st.lastOnlineEpoch = p.getUInt("online_last", 0);
   st.lastInternetEpoch = p.getUInt("inet_last", 0);
   st.lastOtaCheckEpoch = p.getUInt("ota_last", 0);
-  st.lastFullEpoch = p.getUInt("full_last", 0);
+  // The pre-rc.2 "full_last" (a voltage threshold) is ignored on purpose:
+  // it was what made the "since charge" time wrong.
+  st.chargePeakV = getFloatOr(p, "chg_peak", 0);
+  st.chargeMinV = getFloatOr(p, "chg_min", 0);
+  st.chargeEndEpoch = p.getUInt("chg_end", 0);
   st.lastPage = p.getUChar("last_page", 0);
   // isKey first: a missing string key logs an [E] line (new keys in 0.3.0).
   st.otaTriedVersion = p.isKey("ota_tried") ? p.getString("ota_tried", "") : "";
@@ -47,13 +57,16 @@ void save(const PersistedState& st) {
   p.putUInt("ok_backup", st.lastSuccessEpoch[SRC_BACKUP]);
   p.putUInt("ok_fx", st.lastSuccessEpoch[SRC_FX]);
   p.putUInt("ok_soc", st.lastSuccessEpoch[SRC_SOC]);
+  p.putUInt("ok_alert", st.lastSuccessEpoch[SRC_ALERT]);
   p.putUInt("sntp_last", st.lastSntpEpoch);
   p.putUInt("boot_count", st.bootCount);
   p.putUShort("wifi_fails", st.consecWifiFails);
   p.putUInt("online_last", st.lastOnlineEpoch);
   p.putUInt("inet_last", st.lastInternetEpoch);
   p.putUInt("ota_last", st.lastOtaCheckEpoch);
-  p.putUInt("full_last", st.lastFullEpoch);
+  p.putFloat("chg_peak", st.chargePeakV);
+  p.putFloat("chg_min", st.chargeMinV);
+  p.putUInt("chg_end", st.chargeEndEpoch);
   p.putUChar("last_page", st.lastPage);
   p.putString("ota_tried", st.otaTriedVersion);
   p.putString("ota_bad", st.otaBadVersion);

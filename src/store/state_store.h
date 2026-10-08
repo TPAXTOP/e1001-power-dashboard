@@ -8,14 +8,16 @@
 #include <Arduino.h>
 #include <data_model.h>
 
-// SRC_BACKUP = Deye status tiles, SRC_SOC = Deye 24 h SOC graph (own cadence).
+// SRC_BACKUP = Deye status tiles, SRC_SOC = Deye 24 h SOC graph (own cadence),
+// SRC_ALERT = air raid alerts.
 enum Source : uint8_t {
   SRC_WEATHER = 0,
   SRC_OUTAGE = 1,
   SRC_BACKUP = 2,
   SRC_FX = 3,
   SRC_SOC = 4,
-  SRC_COUNT = 5
+  SRC_ALERT = 5,
+  SRC_COUNT = 6
 };
 
 struct PersistedState {
@@ -26,7 +28,11 @@ struct PersistedState {
   uint32_t lastOnlineEpoch;  // last wake with WiFi (status bar "No WiFi for ...")
   uint32_t lastInternetEpoch;  // last wake where a request got an HTTP response
   uint32_t lastOtaCheckEpoch;  // last periodic update check
-  uint32_t lastFullEpoch;    // last wake with vbat >= vbatFull; 0 = never seen
+  // Device battery charge detection (dash::updateCharge): peak and lowest
+  // reading of the last charge, and the last wake that counted as charging.
+  float chargePeakV;
+  float chargeMinV;
+  uint32_t chargeEndEpoch;  // 0 = no charge seen yet
   uint8_t lastPage;          // 0 = power, 1 = fx
   String otaTriedVersion;  // set just before rebooting into a new image
   String otaBadVersion;    // a version that was rolled back; never retried

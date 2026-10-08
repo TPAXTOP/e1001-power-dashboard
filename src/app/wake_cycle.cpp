@@ -1,12 +1,14 @@
 #include "wake_cycle.h"
 
 #include <Arduino.h>
+#include <alerts.h>
 #include <schedule.h>
 #include <status.h>
 #include <string.h>
 #include <time.h>
 
 #include "../../include/defaults.h"
+#include "../api/alert_api.h"
 #include "../api/deye_api.h"
 #include "../api/fx_api.h"
 #include "../api/weather_api.h"
@@ -25,18 +27,14 @@
 
 namespace wake_cycle {
 
-// A task due within this much is run now rather than waking again for it.
-static const uint32_t kDueSlackS = 60;
-// Once WiFi is up anyway, tasks due within this much ride along (e.g. the
-// 10-min outage check on a 3-min inverter wake).
-static const uint32_t kPiggybackS = 120;
-static const uint32_t kMinSleepS = 60;
-static const uint32_t kMaxSleepS = 3600;
+static const uint32_t kMinSleepS = 20;
+static const uint32_t kMaxSleepS = dash::kMaxTickS + 60;
 static const uint32_t kNoClockSleepS = 600;  // until SNTP works, wake on a plain timer
 // Below this the fast partial waveform (fixed temperature) is out of spec.
 static const float kColdPanelC = 12.0f;
-// Wake a few seconds after an event, so "now" is safely past it.
-static const uint32_t kEventLagS = 5;
+// Wake a few seconds after the grid slot, so "now" is safely past it (the
+// outage countdown flips to "Power off now" exactly on the slot).
+static const uint32_t kSlotLagS = 5;
 
 // Cached Yasno data crossing midnight: yesterday's "tomorrow" is now "today".
 static void rollOverOutageDays(dash::OutageSchedule& sched) {
@@ -62,13 +60,21 @@ static void rollOverOutageDays(dash::OutageSchedule& sched) {
 
 // --- task table ----------------------------------------------------------------
 
+// The wake grid (schedule.h): every enabled task's effective interval, the
+// tick = the shortest of them (indoor sensor included), and the slot this
+// wake belongs to. A task runs when it is due on this slot.
 struct Plan {
   uint32_t interval[SRC_COUNT] = {};  // effective; 0 = source off
   uint32_t dueAt[SRC_COUNT] = {};
+  uint32_t tick = dash::kMaxTickS;
+  uint32_t slot = 0;
+
+  bool due(int src) const { return dash::dueOnSlot(dueAt[src], slot, tick); }
 };
 
 static void planTasks(const Config& cfg, const PersistedState& st, const RtcState& rs,
-                      const dash::CadenceRules& rules, bool fxPage, uint32_t now, Plan& plan) {
+                      const dash::CadenceRules& rules, bool fxPage, bool hasIndoor, uint32_t now,
+                      Plan& plan) {
   uint32_t base[SRC_COUNT] = {};
   base[SRC_WEATHER] = cfg.widgetWeather ? cfg.weatherMaxAgeS : 0;
   base[SRC_OUTAGE] = cfg.widgetOutage ? cfg.outageMaxAgeS : 0;
@@ -76,11 +82,19 @@ static void planTasks(const Config& cfg, const PersistedState& st, const RtcStat
   base[SRC_BACKUP] = deye ? cfg.backupMaxAgeS : 0;
   base[SRC_SOC] = deye ? cfg.socMaxAgeS : 0;
   base[SRC_FX] = fxPage ? cfg.fxMaxAgeS : 0;
+  base[SRC_ALERT] = cfg.hasAlerts() ? cfg.alertMaxAgeS : 0;
+
+  uint32_t all[SRC_COUNT + 1];
   for (int i = 0; i < SRC_COUNT; i++) {
     plan.interval[i] = dash::effectiveInterval(base[i], true, rules);
     plan.dueAt[i] =
         dash::taskDueAt(st.lastSuccessEpoch[i], rs.lastAttemptEpoch[i], plan.interval[i], now);
+    all[i] = plan.interval[i];
   }
+  // The indoor sensor is read on every wake; its interval only sets the tick.
+  all[SRC_COUNT] = hasIndoor ? dash::effectiveInterval(cfg.indoorIntervalS, false, rules) : 0;
+  plan.tick = dash::wakeTick(all, SRC_COUNT + 1);
+  plan.slot = dash::gridSlot(now, plan.tick);
 }
 
 // --- status bar ------------------------------------------------------------------
@@ -91,12 +105,36 @@ struct StaleInfo {
   const char* name;
 };
 
-// One message by priority (problems > outage countdown > low battery), plus
-// the connectivity icon and the device battery. Every duration is quantized:
-// the panel is only refreshed when the frame changes.
+struct AlertView {
+  bool active = false;   // a fresh Red/Yellow alert: shown above everything
+  bool stale = false;    // alert data too old to trust
+  bool keyRejected = false;
+  bool unavailable = false;  // tried, but no alert data ever arrived
+  dash::AlertStatus status = {};
+};
+
+// "14:05", or "08.10" for an alert that started more than 20 h ago (the
+// status bar reads "... з 14:05").
+static void alertSince(uint32_t since, uint32_t now, char* buf, size_t len) {
+  buf[0] = '\0';
+  if (!since || since > now + 300) return;
+  time_t t = since;
+  struct tm local;
+  localtime_r(&t, &local);
+  if (now - since < 20 * 3600) {
+    snprintf(buf, len, "%02d:%02d", local.tm_hour, local.tm_min);
+  } else {
+    snprintf(buf, len, "%02d.%02d", local.tm_mday, local.tm_mon + 1);
+  }
+}
+
+// One message by priority (air raid alert > problems > outage countdown >
+// low battery), plus the connectivity icon and the device battery. Every
+// duration is quantized: the panel is only refreshed when the frame changes.
 static void buildStatusBar(const Config& cfg, const PersistedState& st, RtcState& rs,
-                           const screen::Frame& fr, bool timeOk, bool lowBatt, float vbat,
-                           bool inverterOffline, StatusBarView& sb) {
+                           const screen::Frame& fr, const AlertView& alert, bool timeOk,
+                           bool lowBatt, float vbat, bool charging, bool inverterOffline,
+                           StatusBarView& sb) {
   const PowerView& view = fr.power;
   uint32_t now = time_sync::nowEpoch();
   char dur[12];
@@ -106,6 +144,7 @@ static void buildStatusBar(const Config& cfg, const PersistedState& st, RtcState
   };
 
   const StaleInfo stale[] = {
+      {alert.stale, SRC_ALERT, "Air alert"},
       {cfg.widgetOutage && view.outageStale, SRC_OUTAGE, "Outage schedule"},
       {cfg.widgetBackup && view.backupStale && !inverterOffline, SRC_BACKUP, "Inverter"},
       {cfg.widgetWeather && view.weatherStale, SRC_WEATHER, "Weather"},
@@ -133,7 +172,13 @@ static void buildStatusBar(const Config& cfg, const PersistedState& st, RtcState
   const size_t len = sizeof(sb.message);
   sb.severity = StatusBarView::SEV_WARN;
   sb.connectivity = rs.connectivity;
-  if (!timeOk) {
+  if (alert.active) {
+    sb.severity = alert.status.level == dash::ALERT_RED ? StatusBarView::SEV_ALERT_RED
+                                                        : StatusBarView::SEV_ALERT_YELLOW;
+    char since[16];  // formatAlert() appends " з <since>"
+    alertSince(alert.status.sinceEpoch, now, since, sizeof(since));
+    dash::formatAlert(alert.status, since, msg, len);
+  } else if (!timeOk) {
     strlcpy(msg, "Clock not set, waiting for time sync", len);
   } else if (rs.connectivity == dash::CONN_NO_WIFI) {
     if (st.lastOnlineEpoch && now > st.lastOnlineEpoch) {
@@ -149,6 +194,10 @@ static void buildStatusBar(const Config& cfg, const PersistedState& st, RtcState
     }
   } else if (inverterOffline) {
     snprintf(msg, len, "Inverter offline for %s", age(view.backup.lastUpdateEpoch));
+  } else if (alert.keyRejected) {
+    strlcpy(msg, "Air alert API key rejected, check settings", len);
+  } else if (alert.unavailable) {
+    strlcpy(msg, "No air alert data yet", len);
   } else if (firstStale) {
     snprintf(msg, len, "%s data %s old", firstStale->name, age(st.lastSuccessEpoch[firstStale->src]));
   } else if (hasOutageMsg) {
@@ -163,11 +212,10 @@ static void buildStatusBar(const Config& cfg, const PersistedState& st, RtcState
   int raw = dash::batteryPercentFromVolts(vbat);
   sb.batteryPercent = dash::stickyBatteryStep(raw, rs.shownBattery);
   rs.shownBattery = (int16_t)sb.batteryPercent;
-  if (timeOk && st.lastFullEpoch && now >= st.lastFullEpoch) {
-    sb.hasSinceFull = true;
-    uint32_t since = now - st.lastFullEpoch;
-    sb.sinceFullS = dash::quantizeAge(since);
-    sb.drainPerDay = dash::drainPerDay(since, sb.batteryPercent);
+  sb.charging = charging;
+  if (!charging && timeOk && st.chargeEndEpoch && now >= st.chargeEndEpoch) {
+    sb.hasSinceCharge = true;
+    sb.sinceChargeS = dash::quantizeAge(now - st.chargeEndEpoch);
   }
 }
 
@@ -196,7 +244,7 @@ uint32_t run(Config& cfg, PersistedState& st, const Wake& wake) {
   // --- battery policy -------------------------------------------------
   float vbat = power_mgmt::batteryVolts();
   bool usb = power_mgmt::usbPresent();
-  LOGI("cycle", "boot=%lu vbat=%.2fV usb=%d", st.bootCount, vbat, usb);
+  LOGI("cycle", "boot=%lu vbat=%.3fV usb=%d", st.bootCount, vbat, usb);
 
   if (!usb && vbat > 0.5f && vbat < cfg.vbatCrit) {
     display::begin();
@@ -223,10 +271,10 @@ uint32_t run(Config& cfg, PersistedState& st, const Wake& wake) {
   bool fxPage = st.lastPage == 1;
 
   dash::CadenceRules rules;
-  int minOfDay = 0;
   auto updateClock = [&]() {
     timeOk = time_sync::timeValid();
     now = time_sync::nowEpoch();
+    int minOfDay = 0;
     if (timeOk) {
       time_t t = now;
       struct tm local;
@@ -259,6 +307,17 @@ uint32_t run(Config& cfg, PersistedState& st, const Wake& wake) {
   if (!view.hasSoc) memset(&view.soc, 0, sizeof(view.soc));
   if (fxPage) frame.hasFx = state_store::loadBlob(SRC_FX, &frame.fx, sizeof(frame.fx));
 
+  static alert_api::AlertCache alertCache;  // ~150 B, static like the other big blobs
+  memset(&alertCache, 0, sizeof(alertCache));
+  bool hasAlert =
+      cfg.hasAlerts() && state_store::loadBlob(SRC_ALERT, &alertCache, sizeof(alertCache));
+  bool alertRegionsChanged = false;
+  if (hasAlert && strcmp(alertCache.regions, cfg.alertRegions.c_str()) != 0) {
+    // Regions changed in the portal: never show another region's alert.
+    hasAlert = false;
+    alertRegionsChanged = true;
+  }
+
   bool groupChanged = false;
   if (cfg.widgetOutage) {
     strlcpy(view.outageGroup, cfg.yasnoGroup.c_str(), sizeof(view.outageGroup));
@@ -271,9 +330,9 @@ uint32_t run(Config& cfg, PersistedState& st, const Wake& wake) {
     }
   }
 
-  // --- which tasks are due ------------------------------------------------
+  // --- which tasks are due on this slot --------------------------------------
   Plan plan;
-  planTasks(cfg, st, rs, rules, fxPage, now, plan);
+  planTasks(cfg, st, rs, rules, fxPage, hasIndoor, now, plan);
   bool forceAll = wake.refreshButton || wake.coldBoot || !timeOk;
   if (forceAll) {
     for (int i = 0; i < SRC_COUNT; i++) {
@@ -281,9 +340,10 @@ uint32_t run(Config& cfg, PersistedState& st, const Wake& wake) {
     }
   }
   if (groupChanged) plan.dueAt[SRC_OUTAGE] = now;
+  if (alertRegionsChanged && plan.interval[SRC_ALERT]) plan.dueAt[SRC_ALERT] = now;
 
   bool anyDue = false;
-  for (int i = 0; i < SRC_COUNT; i++) anyDue |= dash::taskDue(plan.dueAt[i], now, kDueSlackS);
+  for (int i = 0; i < SRC_COUNT; i++) anyDue |= plan.due(i);
 
   bool battOkForOta = vbat < 0.5f || vbat >= DEF_VBAT_OTA_MIN;  // < 0.5: unknown
   uint32_t otaPeriodS = (uint32_t)cfg.otaIntervalH * 3600;
@@ -294,8 +354,8 @@ uint32_t run(Config& cfg, PersistedState& st, const Wake& wake) {
   // A pending (fresh from OTA) image must get online to confirm itself; a
   // deep sleep before that would roll it back.
   bool goOnline = anyDue || otaDue || ota_pull::pendingVerify() || forceAll;
-  LOGI("cycle", "%s wake%s%s", goOnline ? "online" : "offline", rules.night ? ", night" : "",
-       lowBatt ? ", low battery" : "");
+  LOGI("cycle", "%s wake, tick %lus%s%s", goOnline ? "online" : "offline",
+       (unsigned long)plan.tick, rules.night ? ", night" : "", lowBatt ? ", low battery" : "");
 
   // --- network ---------------------------------------------------------
   bool online = false;
@@ -315,11 +375,31 @@ uint32_t run(Config& cfg, PersistedState& st, const Wake& wake) {
     updateClock();
     if (!hadClock && timeOk) {
       // First valid time: the plan was made with a bogus clock.
-      planTasks(cfg, st, rs, rules, fxPage, now, plan);
+      planTasks(cfg, st, rs, rules, fxPage, hasIndoor, now, plan);
       for (int i = 0; i < SRC_COUNT; i++) {
         if (plan.interval[i]) plan.dueAt[i] = now;
       }
     }
+  }
+
+  // Tasks are stamped with their grid slot, so due times stay on the grid
+  // instead of drifting by the few seconds each wake takes. A wake ahead of
+  // its slot (button) stamps "now": a time in the future would read as a
+  // wrong clock.
+  const uint32_t stamp = plan.slot < now ? plan.slot : now;
+  if (timeOk) {
+    char dueList[64] = "";
+    static const char* kNames[SRC_COUNT] = {"weather", "outage", "inverter", "fx", "soc", "alerts"};
+    for (int i = 0; i < SRC_COUNT; i++) {
+      if (!plan.due(i)) continue;
+      strlcat(dueList, " ", sizeof(dueList));
+      strlcat(dueList, kNames[i], sizeof(dueList));
+    }
+    time_t t = plan.slot;
+    struct tm local;
+    localtime_r(&t, &local);
+    LOGI("cycle", "slot %02d:%02d, due:%s", local.tm_hour, local.tm_min,
+         dueList[0] ? dueList : " nothing");
   }
 
   // Without valid wall time the per-source age logic and all timestamps are
@@ -329,20 +409,32 @@ uint32_t run(Config& cfg, PersistedState& st, const Wake& wake) {
     // No WiFi: count it as an attempt for everything that was due, so the
     // next try comes one interval later instead of on every wake.
     for (int i = 0; i < SRC_COUNT; i++) {
-      if (dash::taskDue(plan.dueAt[i], now, kDueSlackS)) rs.lastAttemptEpoch[i] = now;
+      if (plan.due(i)) rs.lastAttemptEpoch[i] = stamp;
     }
     if (otaDue) st.lastOtaCheckEpoch = now;
   }
   net::resetCounters();
-  auto runs = [&](Source src) {
-    return net && dash::taskDue(plan.dueAt[src], now, kPiggybackS);
-  };
-  auto attempted = [&](Source src) { rs.lastAttemptEpoch[src] = now; };
+  auto runs = [&](Source src) { return net && plan.due(src); };
+  auto attempted = [&](Source src) { rs.lastAttemptEpoch[src] = stamp; };
   auto succeeded = [&](Source src, const void* data, size_t size) {
     state_store::saveBlob(src, data, size);
-    st.lastSuccessEpoch[src] = now;
+    st.lastSuccessEpoch[src] = stamp;
   };
 
+  // Alerts first: the most time-critical source.
+  if (runs(SRC_ALERT)) {
+    attempted(SRC_ALERT);
+    static alert_api::AlertCache fresh;
+    alert_api::FetchError err = alert_api::ERR_NONE;
+    if (alert_api::fetch(cfg, hasAlert ? &alertCache : nullptr, now, fresh, &err)) {
+      alertCache = fresh;
+      hasAlert = true;
+      rs.alertErr = alert_api::ERR_NONE;
+      succeeded(SRC_ALERT, &fresh, sizeof(fresh));
+    } else {
+      rs.alertErr = err;
+    }
+  }
   if (runs(SRC_WEATHER)) {
     attempted(SRC_WEATHER);
     dash::WeatherData w;
@@ -402,11 +494,24 @@ uint32_t run(Config& cfg, PersistedState& st, const Wake& wake) {
          c.attempts, c.responses, c.transportErrors, rs.connectivity);
     if (timeOk && c.responses > 0) st.lastInternetEpoch = now;
   }
+
+  // --- device battery charge detection ------------------------------------
+  // Wall-clock based (now - chargeEndEpoch), so it counts across offline
+  // wakes and deep sleep alike; see dash::updateCharge.
+  dash::ChargeState charge;
+  charge.peakV = st.chargePeakV;
+  charge.minV = st.chargeMinV;
+  charge.endEpoch = st.chargeEndEpoch;
+  bool chargeChanged = false;
   if (timeOk) {
     if (online) st.lastOnlineEpoch = now;
-    // Every wake at/above the "full" voltage restarts the counter, so it
-    // effectively counts from when the device came off the charger.
-    if (vbat >= cfg.vbatFull) st.lastFullEpoch = now;
+    chargeChanged = dash::updateCharge(charge, vbat, now);
+    st.chargePeakV = charge.peakV;
+    st.chargeMinV = charge.minV;
+    st.chargeEndEpoch = charge.endEpoch;
+    LOGI("cycle", "charge: %s, peak %.3fV, min %.3fV, ended %lus ago",
+         charge.charging ? "charging" : "not charging", charge.peakV, charge.minV,
+         charge.endEpoch && now >= charge.endEpoch ? (unsigned long)(now - charge.endEpoch) : 0UL);
   }
 
   // --- OTA check (before the panel refresh, while WiFi is up) -------------
@@ -423,8 +528,9 @@ uint32_t run(Config& cfg, PersistedState& st, const Wake& wake) {
     }
   }
 
-  // Offline wakes keep their state in RTC RAM only (flash wear).
-  if (goOnline || wake.pageButton) state_store::save(st);
+  // Offline wakes keep their state in RTC RAM only (flash wear) - except a
+  // charge in progress, which must survive a power loss.
+  if (goOnline || wake.pageButton || chargeChanged) state_store::save(st);
   if (goOnline) {
     net::closeAll();
     wifi_mgr::disconnect();  // radio off before the (slow) panel refresh
@@ -434,6 +540,7 @@ uint32_t run(Config& cfg, PersistedState& st, const Wake& wake) {
   if (view.hasOutage && timeOk) rollOverOutageDays(view.outage);
   if (cfg.widgetOutage && !view.hasOutage) outageErrorText(st, rs, timeOk, view);
 
+  AlertView alertView;
   if (timeOk) {
     view.weatherStale = view.hasWeather &&
                         dash::isStale(st.lastSuccessEpoch[SRC_WEATHER], plan.interval[SRC_WEATHER], now);
@@ -443,7 +550,16 @@ uint32_t run(Config& cfg, PersistedState& st, const Wake& wake) {
                        dash::isStale(st.lastSuccessEpoch[SRC_BACKUP], plan.interval[SRC_BACKUP], now);
     frame.fxStale = frame.hasFx &&
                     dash::isStale(st.lastSuccessEpoch[SRC_FX], plan.interval[SRC_FX], now);
+    // An alert is only shown while its data is fresh: an old "alert" may be
+    // long over, an old "all clear" may not be. Stale -> "Air alert data N old".
+    alertView.stale = hasAlert &&
+                      dash::isStale(st.lastSuccessEpoch[SRC_ALERT], plan.interval[SRC_ALERT], now);
+    alertView.active =
+        hasAlert && !alertView.stale && alertCache.status.level != dash::ALERT_NONE;
+    alertView.status = alertCache.status;
   }
+  alertView.keyRejected = cfg.hasAlerts() && rs.alertErr == alert_api::ERR_AUTH;
+  alertView.unavailable = cfg.hasAlerts() && !hasAlert && rs.lastAttemptEpoch[SRC_ALERT];
 
   // The logger lost its own connection: Deye cloud still answers, but with a
   // reading that was already old when we fetched it.
@@ -471,7 +587,6 @@ uint32_t run(Config& cfg, PersistedState& st, const Wake& wake) {
     view.indoorTempOut = shownT < cfg.comfortTempMin || shownT > cfg.comfortTempMax;
     view.indoorRhOut = shownRh < cfg.comfortRhMin || shownRh > cfg.comfortRhMax;
   }
-  rs.lastIndoorEpoch = now;
 
   if (timeOk) {
     time_t t = now;
@@ -482,7 +597,8 @@ uint32_t run(Config& cfg, PersistedState& st, const Wake& wake) {
              local.tm_min);
   }
 
-  buildStatusBar(cfg, st, rs, frame, timeOk, lowBatt, vbat, inverterOffline, frame.bar);
+  buildStatusBar(cfg, st, rs, frame, alertView, timeOk, lowBatt, vbat, charge.charging,
+                 inverterOffline, frame.bar);
 
   // --- panel -----------------------------------------------------------------
   screen::Policy policy;
@@ -498,46 +614,22 @@ uint32_t run(Config& cfg, PersistedState& st, const Wake& wake) {
   // then any reset rolls it back (main.cpp retries before giving up).
   if (online) ota_pull::confirmIfPending();
 
-  // --- next wake ---------------------------------------------------------------
+  // --- next wake: the next slot of the grid --------------------------------------
   uint32_t sleepS;
   if (!timeOk) {
     sleepS = kNoClockSleepS * (st.consecWifiFails >= 3 ? 2 : 1);
   } else {
-    Plan next;
-    planTasks(cfg, st, rs, rules, fxPage, now, next);
-    uint32_t wakeAt = dash::kNever;
-    const char* reason = "max sleep";
-    auto consider = [&](uint32_t at, const char* why) {
-      if (at < wakeAt) {
-        wakeAt = at;
-        reason = why;
-      }
-    };
-    static const char* kNames[SRC_COUNT] = {"weather", "outage", "inverter", "fx", "soc"};
-    for (int i = 0; i < SRC_COUNT; i++) consider(next.dueAt[i], kNames[i]);
-
-    uint32_t indoorS = dash::effectiveInterval(cfg.indoorIntervalS, false, rules);
-    if (hasIndoor && indoorS) consider(rs.lastIndoorEpoch + indoorS, "indoor");
-    if (otaPeriodS) consider(st.lastOtaCheckEpoch + otaPeriodS, "update check");
-
-    time_t t = now;
+    now = time_sync::nowEpoch();
+    uint32_t next = plan.slot + plan.tick;
+    // A wake that overran its tick (e.g. a slow update check) takes the
+    // first slot still ahead instead of waking right away.
+    if (next < now + kMinSleepS) next = (now / plan.tick + 1) * plan.tick;
+    sleepS = dash::sleepSeconds(next + kSlotLagS, now, kMinSleepS, kMaxSleepS);
+    time_t t = next;
     struct tm local;
     localtime_r(&t, &local);
-    uint32_t midnight = now - (uint32_t)(minOfDay * 60 + local.tm_sec);
-    if (view.hasOutage) {
-      int b = dash::nextOutageBoundaryMin(view.outage, minOfDay);
-      if (b >= 0) consider(midnight + (uint32_t)b * 60 + kEventLagS, "outage start/end");
-    }
-    if (cfg.nightEnabled) {
-      int m = dash::minutesToNightBoundary(minOfDay, cfg.nightStartMin, cfg.nightEndMin);
-      if (m > 0) consider(midnight + (uint32_t)(minOfDay + m) * 60 + kEventLagS, "night edge");
-    }
-    // Forecast rows and the date roll over on the hour (Kyiv is a whole-hour
-    // offset from UTC).
-    consider((now / 3600 + 1) * 3600 + kEventLagS, "full hour");
-
-    sleepS = dash::sleepSeconds(wakeAt, now, kMinSleepS, kMaxSleepS);
-    LOGI("cycle", "next wake in %lus (%s)", (unsigned long)sleepS, reason);
+    LOGI("cycle", "next wake %02d:%02d in %lus (tick %lus)", local.tm_hour, local.tm_min,
+         (unsigned long)sleepS, (unsigned long)plan.tick);
   }
 
   rtc_state::commit();

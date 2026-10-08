@@ -5,6 +5,7 @@
 #include <WebServer.h>
 #include <WiFi.h>
 #include <mbedtls/sha256.h>
+#include <schedule.h>
 #include <status.h>
 
 #include "../../include/defaults.h"
@@ -108,12 +109,15 @@ static String statusLine() {
   PersistedState st;
   state_store::load(st);
   uint32_t now = time_sync::nowEpoch();
-  if (time_sync::timeValid() && st.lastFullEpoch && now >= st.lastFullEpoch) {
+  if (time_sync::timeValid() && st.chargeEndEpoch && now >= st.chargeEndEpoch) {
     char dur[12];
-    dash::formatDuration(now - st.lastFullEpoch, dur, sizeof(dur));
-    s += ", last full ";
+    dash::formatDuration(now - st.chargeEndEpoch, dur, sizeof(dur));
+    s += ", last charge ended ";
     s += dur;
-    s += " ago";
+    s += " ago (peak " + String(st.chargePeakV, 3) + " V, lowest since " +
+         String(st.chargeMinV, 3) + " V)";
+  } else {
+    s += ", no charge seen yet";
   }
   if (st.otaBadVersion.length()) {
     s += "<br>Update to " + htmlEscape(st.otaBadVersion) +
@@ -167,6 +171,22 @@ static void handleRoot() {
   addText(html, "wifi_pass", "Password", c.wifiPass, "password");
 
   html += "<h2>Refresh intervals (seconds)</h2>";
+  {
+    // Same rule as the wake cycle (daytime, normal battery): the device
+    // wakes at the shortest interval and does everything due on that wake.
+    uint32_t iv[] = {c.hasAlerts() ? c.alertMaxAgeS : 0,
+                     c.widgetBackup && c.hasDeye() ? c.backupMaxAgeS : 0,
+                     c.widgetBackup && c.hasDeye() ? c.socMaxAgeS : 0,
+                     c.widgetOutage ? c.outageMaxAgeS : 0,
+                     c.widgetWeather ? c.weatherMaxAgeS : 0,
+                     c.indoorIntervalS};
+    uint32_t tick = dash::wakeTick(iv, sizeof(iv) / sizeof(iv[0]));
+    html += "<p>The device wakes every <b>" + String(tick / 60.0f, tick % 60 ? 1 : 0) +
+            " min</b> (the shortest interval below), on the clock (:00, :03, ...), and "
+            "refreshes everything that is due on each wake. Outage start/end show exactly "
+            "when this divides 30 min.</p>";
+  }
+  addNum(html, "iv_alert", "Air raid alerts", c.alertMaxAgeS);
   addNum(html, "iv_backup", "Inverter status: battery, grid, charge, load", c.backupMaxAgeS);
   addNum(html, "iv_soc", "Inverter 24 h battery graph", c.socMaxAgeS);
   addNum(html, "iv_outage", "Outage schedule", c.outageMaxAgeS);
@@ -186,6 +206,12 @@ static void handleRoot() {
          "Full refresh (clears ghosting, flashes) at most every N minutes (0 = off)",
          c.fullRefreshMin);
   addNum(html, "max_partial", "...or after N partial refreshes (0 = no limit)", c.maxPartials);
+
+  html += "<h2>Air raid alerts (api.ukrainealarm.com)</h2>";
+  addText(html, "alert_key", "API key (request one at api.ukrainealarm.com)", c.alertApiKey);
+  addText(html, "alert_reg",
+          "Region ids, comma-separated, up to 3 (31 = Kyiv city; list: /api/v3/regions)",
+          c.alertRegions);
 
   html += "<h2>Power outage (Yasno)</h2>";
   addText(html, "yasno_group",
@@ -218,15 +244,11 @@ static void handleRoot() {
   addFloat(html, "cf_rh_min", "Comfortable humidity from (%)", c.comfortRhMin);
   addFloat(html, "cf_rh_max", "Comfortable humidity to (%)", c.comfortRhMax);
 
-  html += "<h2>Device battery</h2>";
-  addFloat(html, "vbat_full",
-           "Full-charge voltage (V). A wake at or above it restarts the \"since full\" timer",
-           c.vbatFull);
-
   html += "<h2>Widgets & power</h2>";
   addCheck(html, "w_weather", "Weather widget", c.widgetWeather);
   addCheck(html, "w_outage", "Outage widget", c.widgetOutage);
   addCheck(html, "w_backup", "Backup power widget", c.widgetBackup);
+  addCheck(html, "w_alerts", "Air raid alerts in the status bar", c.widgetAlerts);
   addCheck(html, "usb_awake", "Stay awake on USB power", c.stayAwakeOnUsb);
 
   html +=
@@ -271,6 +293,7 @@ static void handleSave() {
   c.weatherMaxAgeS = interval("age_weather", c.weatherMaxAgeS);
   c.indoorIntervalS = interval("iv_indoor", c.indoorIntervalS);
   c.fxMaxAgeS = interval("age_fx", c.fxMaxAgeS);
+  c.alertMaxAgeS = interval("iv_alert", c.alertMaxAgeS);
 
   c.nightEnabled = server.hasArg("night_on");
   c.nightStartMin = parseHhmm(arg("night_start", ""), c.nightStartMin);
@@ -295,6 +318,9 @@ static void handleSave() {
   c.deyeBattWh = arg("deye_batt_wh", String(c.deyeBattWh)).toInt();
 
   c.fxApiKey = arg("fx_key", c.fxApiKey);
+  c.alertApiKey = arg("alert_key", c.alertApiKey);
+  c.alertRegions = arg("alert_reg", c.alertRegions);
+  c.alertRegions.replace(" ", "");
   c.otaManifestUrl = arg("ota_url", c.otaManifestUrl);
   c.otaIntervalH = arg("ota_hours", String(c.otaIntervalH)).toInt();
 
@@ -304,13 +330,12 @@ static void handleSave() {
   c.comfortTempMax = arg("cf_t_max", String(c.comfortTempMax)).toFloat();
   c.comfortRhMin = arg("cf_rh_min", String(c.comfortRhMin)).toFloat();
   c.comfortRhMax = arg("cf_rh_max", String(c.comfortRhMax)).toFloat();
-  float full = arg("vbat_full", String(c.vbatFull)).toFloat();
-  if (full >= 3.9f && full <= 4.3f) c.vbatFull = full;  // a typo must not disable the timer
 
   // Unchecked checkboxes are absent from the POST body.
   c.widgetWeather = server.hasArg("w_weather");
   c.widgetOutage = server.hasArg("w_outage");
   c.widgetBackup = server.hasArg("w_backup");
+  c.widgetAlerts = server.hasArg("w_alerts");
   c.stayAwakeOnUsb = server.hasArg("usb_awake");
 
   config_store::save(c);
@@ -384,7 +409,7 @@ void run(Config& cfg, bool provisioning) {
   // Reaching the portal is enough to accept a fresh image: from here any
   // firmware can be uploaded, so a rollback would only get in the way.
   ota_pull::confirmIfPending();
-  time_sync::initFromRtc(cfg);  // for "last full ... ago" in the status line
+  time_sync::initFromRtc(cfg);  // for "last charge ended ... ago" in the status line
 
   // AP credentials derived from the chip MAC: stable per device.
   uint64_t mac = ESP.getEfuseMac();

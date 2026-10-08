@@ -437,4 +437,11 @@ void drawStaleBadge(int x, int yCenter) {
   f.setForegroundColor(GxEPD_BLACK);
 }
 
+void drawAlertIcon(int x, int yCenter) {
+  const int top = yCenter - 10, bottom = yCenter + 10, cx = x + kAlertIconW / 2;
+  g().fillTriangle(cx, top, x, bottom, x + kAlertIconW - 1, bottom, GxEPD_BLACK);
+  g().fillRect(cx - 1, top + 7, 3, 7, GxEPD_WHITE);
+  g().fillRect(cx - 1, bottom - 4, 3, 2, GxEPD_WHITE);
+}
+
 }  // namespace widgets

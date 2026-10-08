@@ -98,10 +98,11 @@ static int request(const char* method, const String& url, Send send) {
 }
 
 bool httpGetJson(const String& url, JsonDocument& doc, const JsonDocument* filter,
-                 int* httpCodeOut) {
+                 int* httpCodeOut, const char* authorization) {
   HTTPClient& h = http();
-  int code = request("GET", url, [](HTTPClient& c) {
+  int code = request("GET", url, [&](HTTPClient& c) {
     c.addHeader("Accept", "application/json");
+    if (authorization && *authorization) c.addHeader("Authorization", authorization);
     return c.GET();
   });
   if (httpCodeOut) *httpCodeOut = code;

@@ -13,10 +13,11 @@ struct Wake {
   bool coldBoot = false;       // power-on/reset/flash (not a deep-sleep wake)
 };
 
-// One wake: run whatever is due (sources, indoor sensor, OTA check), render,
-// refresh the panel only if the frame changed. WiFi is switched on only when
-// an online task is due. Returns the seconds to deep-sleep until the next
-// task, outage start/end, night edge or full hour.
+// One wake: run whatever is due on this slot of the wake grid (sources, OTA
+// check; the indoor sensor is read every wake), render, refresh the panel
+// only if the frame changed. WiFi is switched on only when an online task is
+// due. Returns the seconds to deep-sleep until the next grid slot (the grid
+// period is the shortest enabled interval, see schedule.h).
 uint32_t run(Config& cfg, PersistedState& st, const Wake& wake);
 
 }  // namespace wake_cycle

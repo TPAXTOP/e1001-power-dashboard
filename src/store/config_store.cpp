@@ -35,6 +35,7 @@ void load(Config& cfg) {
   cfg.backupMaxAgeS = p.getUInt("iv_backup", DEF_BACKUP_MAX_AGE_S);
   cfg.socMaxAgeS = p.getUInt("iv_soc", DEF_SOC_MAX_AGE_S);
   cfg.fxMaxAgeS = p.getUInt("age_fx", DEF_FX_MAX_AGE_S);
+  cfg.alertMaxAgeS = p.getUInt("iv_alert", DEF_ALERT_MAX_AGE_S);
   cfg.indoorIntervalS = p.getUInt("iv_indoor", DEF_INDOOR_INTERVAL_S);
 
   cfg.nightEnabled = p.getBool("night_on", DEF_NIGHT_ENABLED);
@@ -42,12 +43,13 @@ void load(Config& cfg) {
   cfg.nightEndMin = p.getUShort("night_end", DEF_NIGHT_END_MIN);
   cfg.nightIntervalS = p.getUInt("iv_night", DEF_NIGHT_INTERVAL_S);
 
-  cfg.fullRefreshMin = p.getUShort("full_min", DEF_FULL_REFRESH_MIN);
-  cfg.maxPartials = p.getUShort("max_partial", DEF_MAX_PARTIALS);
+  // New keys in 0.4.0-rc.2 (defaults 60 min / 30 became 6 h / no limit): the
+  // rc.1 portal saved the old defaults, which would otherwise stay pinned.
+  cfg.fullRefreshMin = p.getUShort("full_refr_min", DEF_FULL_REFRESH_MIN);
+  cfg.maxPartials = p.getUShort("partials_max", DEF_MAX_PARTIALS);
 
   cfg.vbatLow = getFloatOr(p, "vbat_low", DEF_VBAT_LOW);
   cfg.vbatCrit = getFloatOr(p, "vbat_crit", DEF_VBAT_CRITICAL);
-  cfg.vbatFull = getFloatOr(p, "vbat_full", DEF_VBAT_FULL);
 
   cfg.indoorTempOffset = getFloatOr(p, "in_t_off", DEF_INDOOR_T_OFFSET);
   cfg.indoorRhOffset = getFloatOr(p, "in_rh_off", DEF_INDOOR_RH_OFFSET);
@@ -75,6 +77,11 @@ void load(Config& cfg) {
   cfg.fxTarget = p.getString("fx_target", DEF_FX_TARGET);
   cfg.fxHistoryDays = p.getUShort("fx_days", DEF_FX_HISTORY_DAYS);
 
+  // isKey first: a missing string key logs an [E] line (new keys in rc.2).
+  cfg.alertApiKey = p.isKey("alert_key") ? p.getString("alert_key", "") : "";
+  cfg.alertRegions = p.isKey("alert_reg") ? p.getString("alert_reg", DEF_ALERT_REGIONS)
+                                          : String(DEF_ALERT_REGIONS);
+
   cfg.otaManifestUrl = p.getString("ota_url", DEF_OTA_MANIFEST_URL);
   // Before 0.3.0 the default was empty, and a portal save stored that.
   if (!cfg.otaManifestUrl.length()) cfg.otaManifestUrl = DEF_OTA_MANIFEST_URL;
@@ -82,6 +89,7 @@ void load(Config& cfg) {
   cfg.widgetWeather = p.getBool("w_weather", true);
   cfg.widgetOutage = p.getBool("w_outage", true);
   cfg.widgetBackup = p.getBool("w_backup", true);
+  cfg.widgetAlerts = p.getBool("w_alerts", true);
   cfg.stayAwakeOnUsb = p.getBool("usb_awake", false);
 
   p.end();
@@ -104,6 +112,7 @@ void save(const Config& cfg) {
   p.putUInt("iv_backup", cfg.backupMaxAgeS);
   p.putUInt("iv_soc", cfg.socMaxAgeS);
   p.putUInt("age_fx", cfg.fxMaxAgeS);
+  p.putUInt("iv_alert", cfg.alertMaxAgeS);
   p.putUInt("iv_indoor", cfg.indoorIntervalS);
 
   p.putBool("night_on", cfg.nightEnabled);
@@ -111,12 +120,11 @@ void save(const Config& cfg) {
   p.putUShort("night_end", cfg.nightEndMin);
   p.putUInt("iv_night", cfg.nightIntervalS);
 
-  p.putUShort("full_min", cfg.fullRefreshMin);
-  p.putUShort("max_partial", cfg.maxPartials);
+  p.putUShort("full_refr_min", cfg.fullRefreshMin);
+  p.putUShort("partials_max", cfg.maxPartials);
 
   p.putFloat("vbat_low", cfg.vbatLow);
   p.putFloat("vbat_crit", cfg.vbatCrit);
-  p.putFloat("vbat_full", cfg.vbatFull);
 
   p.putFloat("in_t_off", cfg.indoorTempOffset);
   p.putFloat("in_rh_off", cfg.indoorRhOffset);
@@ -144,11 +152,15 @@ void save(const Config& cfg) {
   p.putString("fx_target", cfg.fxTarget);
   p.putUShort("fx_days", cfg.fxHistoryDays);
 
+  p.putString("alert_key", cfg.alertApiKey);
+  p.putString("alert_reg", cfg.alertRegions);
+
   p.putString("ota_url", cfg.otaManifestUrl);
 
   p.putBool("w_weather", cfg.widgetWeather);
   p.putBool("w_outage", cfg.widgetOutage);
   p.putBool("w_backup", cfg.widgetBackup);
+  p.putBool("w_alerts", cfg.widgetAlerts);
   p.putBool("usb_awake", cfg.stayAwakeOnUsb);
 
   p.end();

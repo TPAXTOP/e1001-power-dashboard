@@ -31,11 +31,23 @@ int batteryPercentFromVolts(float volts) {
   return 100;
 }
 
-int drainPerDay(uint32_t sinceFullS, int percentNow) {
-  if (percentNow < 0 || sinceFullS < kDrainMinS) return -1;
-  int used = 100 - percentNow;
-  if (used < 0) used = 0;
-  return (int)lroundf(used * 86400.0f / (float)sinceFullS);
+bool updateCharge(ChargeState& s, float volts, uint32_t now) {
+  s.charging = false;
+  if (volts <= 0.0f || now == 0) return false;
+
+  bool start = s.minV > 0 && volts >= s.minV + kChargeRiseV;
+  if (start) {
+    s.peakV = volts;
+    s.minV = volts;
+  } else if (s.peakV > 0 && volts >= s.peakV - kChargePlateauV) {
+    if (volts > s.peakV) s.peakV = volts;
+  } else {
+    if (s.minV <= 0 || volts < s.minV) s.minV = volts;
+    return false;
+  }
+  s.charging = true;
+  s.endEpoch = now;
+  return true;
 }
 
 void formatDuration(uint32_t seconds, char* buf, int bufLen) {
@@ -203,17 +215,6 @@ bool formatOutageStatus(const OutageSchedule& s, int nowMin, char* buf, int bufL
     return true;
   }
   return false;
-}
-
-int nextOutageBoundaryMin(const OutageSchedule& s, int nowMin) {
-  if (emergency(s)) return -1;
-  Span spans[2 * kSlotsMax];
-  int m = mergedSpans(s, spans);
-  for (int i = 0; i < m; i++) {
-    if (spans[i].start > nowMin) return spans[i].start;
-    if (spans[i].end > nowMin) return spans[i].end;
-  }
-  return -1;
 }
 
 // ---------------------------------------------------------------- SOC history

@@ -23,8 +23,12 @@ built-in battery.
   runtime estimate, load, and a 24 h SOC graph.
 - **Weather** from [Open-Meteo](https://open-meteo.com): current conditions, chance of rain over the next 3 h, and
   a 6-hour forecast. Indoor temperature and humidity come from the onboard sensor.
+- **Air raid alerts** for your region from [api.ukrainealarm.com](https://api.ukrainealarm.com), in the service's
+  own Ukrainian wording: a red alert turns the status bar black, a yellow one (e.g. drone threat) makes it
+  hatched grey.
 - **USD/UAH** 30-day chart on a second page (white buttons), via exchangerate.host.
-- **Built for the battery:** each source has its own refresh cadence and WiFi only comes on when one is due. The
+- **Built for the battery:** each source has its own refresh cadence on one shared wake grid, and WiFi only comes
+  on when a source is due. The
   screen is redrawn only when something on it changed, with a flicker-free partial refresh and a periodic full
   refresh against ghosting. Last-known-good data is cached in flash and shown with a "!" badge when fetches fail.
 - **Connectivity at a glance:** a WiFi icon in the status bar, plus "No WiFi", "No internet" (WiFi up, nothing
@@ -94,14 +98,15 @@ git push origin main --follow-tags
 
 ## Power budget (2000 mAh battery)
 
-WiFi plus TLS is what costs battery, not the wake itself or the panel. So the device wakes whenever a task is due
-but switches WiFi on only for data sources: the inverter status every 3 min, the outage schedule every 10 min,
-the battery graph every 15 min (fetching only the new part), weather every 30 min. Indoor readings, outage
-start/end and the full hour are offline wakes that cost well under a second of CPU time. The panel is only
-touched when the frame changed, mostly as a partial refresh (~0.5 s, no flashing).
+WiFi plus TLS is what costs battery, not the wake itself or the panel. The device wakes on one grid at the
+shortest enabled interval (3 min by default, on the clock) and does everything due on that wake: air raid alerts
+and the inverter status every 3 min, the outage schedule every 10 min, the battery graph every 15 min (fetching
+only the new part), weather every 30 min. With alerts and the inverter at 3 min, most daytime wakes are online.
+The panel is only touched when the frame changed, mostly as a partial refresh (~0.5 s, no flashing), with a full
+refresh every 6 h.
 
 Rough estimate with the defaults and the 03:00–08:00 night mode: 35–60 mAh per day, so about 4–7 weeks on the
-2000 mAh battery (not yet measured; the status bar shows the real drain per day). Below 3.45 V the firmware
+2000 mAh battery (not yet measured; the status bar shows the time since the last charge). Below 3.45 V the firmware
 stretches every interval ×4. Below 3.30 V it shows "battery empty" and sleeps until a button press.
 
 ## Repository layout

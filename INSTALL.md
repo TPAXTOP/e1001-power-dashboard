@@ -114,9 +114,11 @@ After the upload, the screen shows **FIRST TIME SETUP**, and the log ends with
    | Portal field | Value |
    |---|---|
    | WiFi SSID / Password | Your home WiFi. **It must be 2.4 GHz**, because the ESP32 can't see 5 GHz-only networks |
-   | Refresh intervals | Defaults are fine: inverter status 180 s, battery graph 900 s, outage schedule 600 s, weather 1800 s, indoor sensor 180 s. WiFi is only switched on when one of them is due |
+   | Refresh intervals | Defaults are fine: air raid alerts 180 s, inverter status 180 s, battery graph 900 s, outage schedule 600 s, weather 1800 s, indoor sensor 180 s. The device wakes at the shortest of them and refreshes everything due on that wake; WiFi is only switched on when a source is due |
    | Night mode | On, 03:00–08:00 by default: everything refreshes at most every 15 min. Untick it if you want full speed around the clock |
-   | Screen | A full refresh (the black/white flash that clears ghosting) at most every `60` min or after `30` partial refreshes. Raise them if the flashing bothers you, lower them if ghosting does |
+   | Screen | A full refresh (the black/white flash that clears ghosting) every `360` min, and optionally after N partial refreshes (`0` = no limit). Lower them if ghosting builds up |
+   | Air raid alerts: API key | Your api.ukrainealarm.com key (request one on that site) |
+   | Air raid alerts: Region ids | `31` (Kyiv city). Up to 3, comma-separated; ids are listed at `/api/v3/regions` |
    | Yasno group | Your **current** group, e.g. `29.1`. Yasno renumbered Kyiv groups (the old `3.2` no longer exists). Check your address on yasno.ua |
    | Deye App ID | `DEYE_APP_ID` |
    | Deye App Secret | `DEYE_APP_SECRET` |
@@ -127,7 +129,7 @@ After the upload, the screen shows **FIRST TIME SETUP**, and the log ends with
    | exchangerate.host API key | `EXCHANGERATE_API_KEY` |
    | Update manifest URL | Leave empty. Empty means this project's latest signed release |
    | Check for updates every N hours | `12`. `0` checks only at power-on |
-   | Indoor climate, Device battery | Defaults are fine. If the indoor temperature reads high or low, set an offset later; the line at the top of the portal shows raw sensor and battery readings |
+   | Indoor climate | Defaults are fine. If the indoor temperature reads high or low, set an offset later; the line at the top of the portal shows raw sensor and battery readings |
 
 4. Click **Save & Reboot**. The device joins your WiFi, fetches everything, and draws the dashboard within about
    30 s.
@@ -150,9 +152,10 @@ I power    deep sleep for ...s
 ```
 
 On screen, the outage widget header reads **POWER OUTAGE … GROUP 29.1**. Today's outage hours are drawn as black
-tiles. The bar along the bottom shows the next outage (or a problem, marked with "!") on the left. The right side
-shows the refresh time and the device battery: `80% · 3d 4h · 6%/d` means 80% charge, 3 days 4 hours since the
-last full charge, and an average drain of 6% per day.
+tiles. The bar along the bottom shows the next outage (or a problem, marked with "!") on the left. An air raid
+alert replaces it, in Ukrainian as the alert service words it: a red alert (`ПОВІТРЯНА ТРИВОГА з 14:05`) turns
+the whole bar black, a yellow one (`Дронова загроза (жовтий рівень) з 13:40`) makes it hatched grey. The right side shows connectivity and the device battery: `80% · 3d 4h` means 80% charge and 3 days 4
+hours since the last charge ended (`80% · charging` while it charges).
 
 ## 8. Everyday use
 
@@ -193,7 +196,8 @@ below 3.7 V. Your settings survive updates.
 | `https GET 403 …yasno…` | Yasno's CDN blocked the request. Report this along with the log |
 | Screen says **BATTERY EMPTY** | Connect USB-C, then press any button |
 | No indoor row under the weather | The onboard sensor didn't answer. Check that `0x44` is in the `I2C devices:` log line |
-| Battery widget never shows the "since full" time | The ADC never reads the full-charge voltage. Charge to full, open the portal, and set **Full-charge voltage** about 0.03 V below the battery voltage shown at the top |
+| Battery shows no "since charge" time | No charge seen since the update. Charge the device once; the status bar shows `charging` while it does. The `charge:` log line shows what the detection sees |
+| Status bar says **Air alert API key rejected** | The api.ukrainealarm.com key is wrong or revoked. Hold green and fix it |
 | Upload fails with "Failed to connect" | The device was asleep. Press green and retry immediately |
 | Boot loop right after flashing | See the note in step 6 (`memory_type`) |
 | Portal says an update **was rolled back** | That version failed its first wake and the device went back. The device skips it until a newer release appears. **Check for update now** retries it on purpose. Please open an issue with the serial log |

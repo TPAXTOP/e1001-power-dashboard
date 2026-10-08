@@ -8,18 +8,6 @@ bool isNight(int minOfDay, int startMin, int endMin) {
   return minOfDay >= startMin || minOfDay < endMin;  // wraps midnight
 }
 
-static int minutesUntil(int from, int to) {
-  int d = ((to - from) % 1440 + 1440) % 1440;
-  return d == 0 ? 1440 : d;
-}
-
-int minutesToNightBoundary(int minOfDay, int startMin, int endMin) {
-  if (startMin == endMin) return -1;
-  int a = minutesUntil(minOfDay, startMin);
-  int b = minutesUntil(minOfDay, endMin);
-  return a < b ? a : b;
-}
-
 uint32_t effectiveInterval(uint32_t baseS, bool online, const CadenceRules& r) {
   if (baseS == 0) return 0;
   uint32_t s = baseS;
@@ -40,9 +28,22 @@ uint32_t taskDueAt(uint32_t lastSuccess, uint32_t lastAttempt, uint32_t interval
   return due ? due : now;
 }
 
-bool taskDue(uint32_t dueAt, uint32_t now, uint32_t slackS) {
+uint32_t wakeTick(const uint32_t* intervalsS, int n) {
+  uint32_t tick = kMaxTickS;
+  for (int i = 0; i < n; i++) {
+    if (intervalsS[i] && intervalsS[i] < tick) tick = intervalsS[i];
+  }
+  return tick < kMinTickS ? kMinTickS : tick;
+}
+
+uint32_t gridSlot(uint32_t now, uint32_t tick) {
+  if (tick == 0) return now;
+  return (uint32_t)(((uint64_t)now + tick / 2) / tick * tick);
+}
+
+bool dueOnSlot(uint32_t dueAt, uint32_t slot, uint32_t tick) {
   if (dueAt == kNever) return false;
-  return dueAt <= now + slackS;
+  return dueAt <= slot + tick / 2;
 }
 
 bool isStale(uint32_t lastSuccess, uint32_t intervalS, uint32_t now) {

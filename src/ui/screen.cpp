@@ -13,7 +13,7 @@
 namespace screen {
 
 // Bump when Frame (or anything it contains) changes layout.
-static const uint32_t kMagic = 0x46524D01;  // "FRM" v1
+static const uint32_t kMagic = 0x46524D02;  // "FRM" v2
 
 struct Snapshot {
   uint32_t magic;

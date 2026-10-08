@@ -47,4 +47,9 @@ void drawBatteryGraph(int x, int y, const dash::BatteryPoint* points, int count)
 // Black circle with white "!" appended after a title; x = title end.
 void drawStaleBadge(int x, int yCenter);
 
+// Air raid alert sign: black warning triangle with a white "!",
+// kAlertIconW x 20, centered on yCenter.
+constexpr int kAlertIconW = 24;
+void drawAlertIcon(int x, int yCenter);
+
 }  // namespace widgets

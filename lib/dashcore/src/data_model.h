@@ -110,6 +110,33 @@ struct SocHistory {
   BatteryPoint points[kHistoryMax];  // oldest first, one per 15-min bucket
 };
 
+// ---------------------------------------------------------------- air raid alerts
+
+enum AlertLevel : uint8_t { ALERT_NONE = 0, ALERT_YELLOW = 1, ALERT_RED = 2 };
+
+// API AlertType; UNKNOWN, INFO and CUSTOM (and anything newer) are ALERT_OTHER.
+enum AlertType : uint8_t {
+  ALERT_AIR = 0,
+  ALERT_ARTILLERY = 1,
+  ALERT_URBAN_FIGHTS = 2,
+  ALERT_CHEMICAL = 3,
+  ALERT_NUCLEAR = 4,
+  ALERT_OTHER = 5,
+};
+
+constexpr int kAlertReasonMax = 100;  // UTF-8 bytes incl. NUL (~48 Cyrillic letters)
+
+// The one alert the status bar shows for the configured region(s).
+struct AlertStatus {
+  uint8_t level;        // AlertLevel; ALERT_NONE = all clear
+  uint8_t type;         // AlertType
+  uint8_t extraTypes;   // other active alert types besides this one
+  uint32_t sinceEpoch;  // when this alert level was declared (UTC)
+  // The API's own Ukrainian text for this level, e.g. "Дронова загроза
+  // (жовтий рівень)"; "" when it sent none (then a fixed name is shown).
+  char reason[kAlertReasonMax];
+};
+
 // ---------------------------------------------------------------- fx
 
 struct FxPoint {
