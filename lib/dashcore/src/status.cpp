@@ -43,10 +43,15 @@ bool updateCharge(ChargeState& s, float volts, uint32_t now) {
     if (volts > s.peakV) s.peakV = volts;
   } else {
     if (s.minV <= 0 || volts < s.minV) s.minV = volts;
-    return false;
+    if (s.endEpoch) return false;
+    // Never saw a charge: count from here rather than show nothing.
+    s.endEpoch = now;
+    s.estimated = true;
+    return true;
   }
   s.charging = true;
   s.endEpoch = now;
+  s.estimated = false;
   return true;
 }
 

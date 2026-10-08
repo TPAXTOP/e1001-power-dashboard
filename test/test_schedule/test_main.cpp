@@ -224,11 +224,13 @@ static void test_sticky_round() {
 static void test_charge_session() {
   const uint32_t t0 = 1800000000;
   ChargeState s;
-  // discharging, no history: nothing known
-  TEST_ASSERT_FALSE(updateCharge(s, 3.85f, t0));
+  // discharging, no history: counts from the first reading, as an estimate
+  TEST_ASSERT_TRUE(updateCharge(s, 3.85f, t0));
   TEST_ASSERT_FALSE(s.charging);
-  TEST_ASSERT_EQUAL_UINT32(0, s.endEpoch);
+  TEST_ASSERT_EQUAL_UINT32(t0, s.endEpoch);
+  TEST_ASSERT_TRUE(s.estimated);
   TEST_ASSERT_FALSE(updateCharge(s, 3.84f, t0 + 180));
+  TEST_ASSERT_EQUAL_UINT32(t0, s.endEpoch);
   TEST_ASSERT_FALSE(updateCharge(s, 3.86f, t0 + 360));  // +20 mV: noise-sized, no charge
 
   // plugged in: constant-current rise
@@ -238,6 +240,7 @@ static void test_charge_session() {
     TEST_ASSERT_TRUE(updateCharge(s, v, t));
     TEST_ASSERT_TRUE(s.charging);
     TEST_ASSERT_EQUAL_UINT32(t, s.endEpoch);
+    TEST_ASSERT_FALSE(s.estimated);  // a real charge replaces the estimate
   }
   // constant-voltage phase: flat at the top with ADC jitter
   const float cv[] = {4.200f, 4.195f, 4.205f, 4.198f, 4.201f};
@@ -257,6 +260,7 @@ static void test_charge_session() {
   }
   TEST_ASSERT_EQUAL_UINT32(lastCharging, s.endEpoch);
   TEST_ASSERT_FALSE(s.charging);
+  TEST_ASSERT_FALSE(s.estimated);
 
   // unknown readings are ignored
   TEST_ASSERT_FALSE(updateCharge(s, 0.0f, t + 180));
@@ -269,10 +273,12 @@ static void test_charge_no_false_start() {
   ChargeState s;
   for (int i = 0; i < 500; i++) {
     float jitter = (i % 3 - 1) * 0.008f;  // +-8 mV ADC noise
-    TEST_ASSERT_FALSE(updateCharge(s, 4.18f - i * 0.0002f + jitter, t0 + i * 180));
+    // only the first reading changes anything: it starts the estimate
+    TEST_ASSERT_EQUAL(i == 0, updateCharge(s, 4.18f - i * 0.0002f + jitter, t0 + i * 180));
     TEST_ASSERT_FALSE(s.charging);
   }
-  TEST_ASSERT_EQUAL_UINT32(0, s.endEpoch);
+  TEST_ASSERT_EQUAL_UINT32(t0, s.endEpoch);
+  TEST_ASSERT_TRUE(s.estimated);
 }
 
 static void test_charge_partial_top_up() {

@@ -33,6 +33,10 @@ built-in battery.
   refresh against ghosting. Last-known-good data is cached in flash and shown with a "!" badge when fetches fail.
 - **Connectivity at a glance:** a WiFi icon in the status bar, plus "No WiFi", "No internet" (WiFi up, nothing
   reachable) and "Inverter offline" (Deye cloud answers, but the logger stopped reporting) notices.
+- **Diagnostic log on a microSD card (optional):** with a FAT-formatted card in the slot, every log line goes to a
+  daily file and every wake adds a CSV row (battery voltage, radio time, awake time, screen refresh), readable in
+  the portal (**Log files**) or on a PC. An SD icon left of the WiFi icon shows that the card is in use; slashed if
+  the last write failed.
 - **No reflash for settings:** WiFi, Yasno group, credentials, intervals and widgets are all set in a web portal on
   the device.
 - **Safe automatic updates:** signed releases from this repo, hash and signature checked on the device, and an
@@ -106,7 +110,8 @@ The panel is only touched when the frame changed, mostly as a partial refresh (~
 refresh every 6 h.
 
 Rough estimate with the defaults and the 03:00–08:00 night mode: 35–60 mAh per day, so about 4–7 weeks on the
-2000 mAh battery (not yet measured; the status bar shows the time since the last charge). Below 3.45 V the firmware
+2000 mAh battery (not yet measured; the status bar shows the time since the last charge, the "battery empty" screen
+how long it ran and on which firmware, and the microSD log has a CSV row per wake). Below 3.45 V the firmware
 stretches every interval ×4. Below 3.30 V it shows "battery empty" and sleeps until a button press.
 
 ## Repository layout
@@ -117,9 +122,9 @@ stretches every interval ×4. Below 3.30 V it shows "battery empty" and sleeps u
 | `src/app/` | Wake-cycle state machine, power management, maintenance portal |
 | `src/net/` | WiFi, HTTPS + root store, SNTP/PCF8563 time, signed OTA pull |
 | `src/api/` | Open-Meteo, Yasno, Deye, exchangerate.host clients |
-| `src/store/` | NVS config and state/cache persistence |
+| `src/store/` | NVS config and state/cache persistence, microSD log |
 | `src/ui/` | GxEPD2 display, widgets/icons, screen renderers |
-| `include/pins.h` | E1001 pin map (EPD SPI 7/9/10/11/12/13, I2C 19/20, buttons 3/4/5) |
+| `include/pins.h` | E1001 pin map (EPD SPI 7/9/10/11/12/13, microSD CS 14/MISO 8/detect 15/power 16, I2C 19/20, buttons 3/4/5) |
 | `certs/` | Curated TLS root CAs and the OTA signing public key |
 | `scripts/` | Release packaging/signing, factory image, root CA tooling |
 | `test/` | Host unit tests (`python -m platformio test -e native`) |

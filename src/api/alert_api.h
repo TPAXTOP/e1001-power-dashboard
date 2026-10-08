@@ -25,6 +25,8 @@ struct AlertCache {
 // regions with alerts) reduced to the configured ids (max 3). The status
 // endpoint is not used: it would be a second request in the same minute.
 // An all-clear is a success with out.status.level == ALERT_NONE.
-bool fetch(const Config& cfg, uint32_t now, AlertCache& out, FetchError* error);
+// httpCode: the request's HTTP status (<= 0: no response), for the SD log.
+bool fetch(const Config& cfg, uint32_t now, AlertCache& out, FetchError* error,
+           int* httpCode = nullptr);
 
 }  // namespace alert_api

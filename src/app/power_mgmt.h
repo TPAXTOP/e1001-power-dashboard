@@ -14,6 +14,9 @@ bool usbPresent();             // SY6974B charger PG_STAT ("power good") bit, fa
 void logI2cDevices();          // cold-boot diagnostic: list responding I2C addresses
 
 // Deep sleep with button wake; seconds==0 disables the timer (button-only).
+// Writes the SD log first.
 [[noreturn]] void deepSleep(uint32_t seconds);
+// ESP.restart() after writing the SD log.
+[[noreturn]] void restart();
 
 }  // namespace power_mgmt

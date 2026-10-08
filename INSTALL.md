@@ -196,7 +196,8 @@ below 3.7 V. Your settings survive updates.
 | `https GET 403 …yasno…` | Yasno's CDN blocked the request. Report this along with the log |
 | Screen says **BATTERY EMPTY** | Connect USB-C, then press any button |
 | No indoor row under the weather | The onboard sensor didn't answer. Check that `0x44` is in the `I2C devices:` log line |
-| Battery shows no "since charge" time | No charge seen since the update. Charge the device once; the status bar shows `charging` while it does. The `charge:` log line shows what the detection sees |
+| Battery time shows `~` (e.g. `80% · ~3d 4h`) | No charge seen since the update, so it counts from the first reading after it. Charge the device once to make it exact; the status bar shows `charging` while it does. The `charge:` log line shows what the detection sees |
+| No SD icon next to the WiFi icon with a card inserted | The card-detect switch doesn't see it: reseat the card. A **slashed** SD icon means the card is seen but can't be written: use a FAT16/FAT32 card (not exFAT). The portal's **Log files** page says which |
 | Status bar says **Air alert API key rejected** | The api.ukrainealarm.com key was refused 5 times in a row. The API also refuses a key that is used more than about once a minute, so make sure no other app or script uses the same key. Otherwise the key is wrong or revoked: hold green and fix it |
 | Upload fails with "Failed to connect" | The device was asleep. Press green and retry immediately |
 | Boot loop right after flashing | See the note in step 6 (`memory_type`) |

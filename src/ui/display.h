@@ -9,6 +9,8 @@
 // (see screen.cpp), so nothing depends on the controller keeping its RAM.
 #pragma once
 
+#include <SPI.h>
+
 #include <Adafruit_GFX.h>
 #include <U8g2_for_Adafruit_GFX.h>
 
@@ -32,6 +34,10 @@ void show();
 void pushPrevious();
 void pushPartial();
 void hibernate();             // panel deep sleep (show/pushPartial already do this)
+
+// The panel's SPI bus. The microSD card shares SCK/MOSI (store/sd_log.cpp
+// re-begins it with MISO while the panel sleeps).
+SPIClass& spi();
 
 // Increments on every push and survives deep sleep (RTC RAM), so a saved
 // frame snapshot can tell whether something else was drawn since.

@@ -28,6 +28,10 @@ void drawDropIcon(int x, int y, int size);
 // slash (no WiFi).
 constexpr int kWifiIconW = 30;
 void drawWifiIcon(int x, int yCenter, uint8_t state);
+// Status-bar microSD card, kSdIconW wide (15 tall), centered on yCenter;
+// error = slashed (card in the slot, but the log could not be written).
+constexpr int kSdIconW = 12;
+void drawSdIcon(int x, int yCenter, bool error);
 // 24x11 status-bar battery (22x11 body + nub); pct < 0 = unknown (empty).
 void drawMiniBattery(int x, int y, int pct);
 

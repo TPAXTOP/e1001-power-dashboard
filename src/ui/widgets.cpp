@@ -201,6 +201,22 @@ void drawWifiIcon(int x, int yCenter, uint8_t state) {
   }
 }
 
+void drawSdIcon(int x, int yCenter, bool error) {
+  // 2 px outline with the top-right corner cut, three contacts at the top.
+  const int top = yCenter - 7, h = 15, w = kSdIconW;
+  g().fillRect(x, top, 2, h, GxEPD_BLACK);                  // left
+  g().fillRect(x, top + h - 2, w, 2, GxEPD_BLACK);          // bottom
+  g().fillRect(x + w - 2, top + 4, 2, h - 4, GxEPD_BLACK);  // right
+  g().fillRect(x, top, w - 5, 2, GxEPD_BLACK);              // top
+  g().drawLine(x + w - 6, top, x + w - 1, top + 5, GxEPD_BLACK);  // cut corner
+  g().drawLine(x + w - 6, top + 1, x + w - 2, top + 5, GxEPD_BLACK);
+  for (int i = 0; i < 3; i++) g().fillRect(x + 3 + i * 2, top + 4, 1, 3, GxEPD_BLACK);
+  if (error) {
+    thickLine(x - 2, top - 1, x + w + 1, top + h, 5, GxEPD_WHITE);
+    thickLine(x - 2, top - 1, x + w + 1, top + h, 2, GxEPD_BLACK);
+  }
+}
+
 void drawMiniBattery(int x, int y, int pct) {
   g().drawRect(x, y, 22, 11, GxEPD_BLACK);
   g().fillRect(x + 22, y + 3, 2, 5, GxEPD_BLACK);

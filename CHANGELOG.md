@@ -8,6 +8,19 @@ newest published (non-pre)release; see [docs/RELEASING.md](docs/RELEASING.md).
 ## [Unreleased]
 
 ### Added
+- Diagnostic log on a microSD card (optional). Log lines are kept in RAM during a wake and written to the card right
+  before deep sleep, so the card is only powered for a fraction of a second per wake. `/log/YYYY-MM-DD.log` has
+  every log line with its local time. Each wake starts with the firmware version, the wake reason and the reset
+  reason (crashes and brownouts show up there). `/log/wakes-YYYY-MM.csv` has one row per wake: battery voltage,
+  WiFi join and on time, requests, the air alert HTTP status, the screen refresh, the awake time and the sleep
+  that followed. The oldest day files are deleted when the card is 85 % full. The portal shows whether a card is
+  in, and lists the files to view or download (**Log files**).
+- An SD card icon left of the WiFi icon while a card is in the slot; slashed when the last write failed.
+- Every HTTPS request is logged with its status and duration. For error responses, the rate-limit-related headers
+  (`Date`, `Retry-After`, `X-*`, `*RateLimit*`, ...) and the start of the body are logged too. The air alert
+  request also logs the seconds since the previous one and the number of refusals since the last success. Together
+  these show whether the API's 401s are its per-minute rate limit or something else.
+- The "battery empty" screen shows how long the device ran since the last charge and the firmware version.
 - Air raid alerts from api.ukrainealarm.com in the status bar, above every other message, in Ukrainian with the
   API's own wording (e.g. `Дронова загроза (жовтий рівень) з 13:40`). Red alerts, which usually come without a
   text, get the official names (`ПОВІТРЯНА ТРИВОГА з 14:05`, `ЗАГРОЗА АРТОБСТРІЛУ`, ...). A red alert turns the
@@ -44,7 +57,8 @@ newest published (non-pre)release; see [docs/RELEASING.md](docs/RELEASING.md).
 - The device battery's "time since full charge" now counts from the end of the last charge, detected from the
   voltage trend (rise while charging, drop when unplugged). Before, every wake at or above 4.15 V restarted it,
   and a rested full cell stays above that for hours after unplugging, so the time read hours short. The
-  "Full-charge voltage" setting is gone. After the update the time is blank until the next charge.
+  "Full-charge voltage" setting is gone. Until the first charge after the update, the time counts from the first
+  reading and is marked as an estimate (`80% · ~3d 4h`).
 - The drain-per-day figure (`6%/d`) is removed from the status bar.
 - Durations in the status bar move in 5-min / 30-min / 1-hour steps, the outage countdown in 5-min (under an
   hour) and 10-min steps, and the device battery and indoor values have hysteresis, so they don't force a

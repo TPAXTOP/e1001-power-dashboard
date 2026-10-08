@@ -10,6 +10,7 @@
 // wakes (indoor sensor, outage start/end, full hour) stay offline.
 #include <Arduino.h>
 #include <Wire.h>
+#include <esp_system.h>
 
 #include "../include/defaults.h"
 #include "../include/pins.h"
@@ -19,6 +20,7 @@
 #include "app/wake_cycle.h"
 #include "net/ota_pull.h"
 #include "store/config_store.h"
+#include "store/sd_log.h"
 #include "store/state_store.h"
 #include "util/log.h"
 
@@ -27,9 +29,29 @@
 // or on entering the portal, so a crash or reset before that rolls back.
 extern "C" bool verifyRollbackLater() { return true; }
 
+static const char* resetReasonName(esp_reset_reason_t r) {
+  switch (r) {
+    case ESP_RST_POWERON: return "power-on";
+    case ESP_RST_EXT: return "reset pin";
+    case ESP_RST_SW: return "software restart";
+    case ESP_RST_PANIC: return "CRASH (panic)";
+    case ESP_RST_INT_WDT: return "CRASH (interrupt watchdog)";
+    case ESP_RST_TASK_WDT: return "CRASH (task watchdog)";
+    case ESP_RST_WDT: return "CRASH (watchdog)";
+    case ESP_RST_DEEPSLEEP: return "deep sleep";
+    case ESP_RST_BROWNOUT: return "BROWNOUT";
+    case ESP_RST_USB: return "usb";
+    default: return "other";
+  }
+}
+
 void setup() {
   Serial.begin(115200);
-  LOGI("main", "%s %s", APP_NAME, APP_VERSION);
+  // First line of every wake in the SD log: the version that ran it, and a
+  // crash or brownout of the previous run.
+  static const char* const kWakeNames[] = {"cold boot", "timer", "button"};
+  LOGI("main", "---- %s %s, %s, reset: %s", APP_NAME, APP_VERSION,
+       kWakeNames[power_mgmt::wakeCause()], resetReasonName(esp_reset_reason()));
 
   pinMode(BTN_GREEN_PIN, INPUT_PULLUP);
   pinMode(BTN_RIGHT_PIN, INPUT_PULLUP);
@@ -88,6 +110,7 @@ void setup() {
     // A WiFi hiccup should not cost the update, so retry a few times first.
     if (ota_pull::pendingVerify() && verifyRetries++ < 3) {
       LOGW("main", "new image not confirmed yet (offline), retry %d in 60 s", verifyRetries);
+      sd_log::flush();  // no deep sleep in between to write it
       delay(60000);
       continue;
     }
@@ -96,6 +119,7 @@ void setup() {
     // the next cycle starts instantly and serial stays attached for debugging.
     if (cfg.stayAwakeOnUsb && power_mgmt::usbPresent()) {
       LOGI("main", "USB stay-awake: next cycle in %lus", (unsigned long)sleepS);
+      sd_log::flush();
       uint32_t until = millis() + sleepS * 1000UL;
       while (millis() < until) {
         if (digitalRead(BTN_RIGHT_PIN) == LOW || digitalRead(BTN_LEFT_PIN) == LOW) {

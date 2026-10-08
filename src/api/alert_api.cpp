@@ -53,7 +53,8 @@ static int collect(JsonArrayConst regions, const String* ids, int idCount,
   return n;
 }
 
-bool fetch(const Config& cfg, uint32_t now, AlertCache& out, FetchError* error) {
+bool fetch(const Config& cfg, uint32_t now, AlertCache& out, FetchError* error, int* httpCode) {
+  if (httpCode) *httpCode = 0;
   if (error) *error = ERR_REQUEST;
   if (!cfg.alertApiKey.length()) {
     if (error) *error = ERR_AUTH;
@@ -90,7 +91,9 @@ bool fetch(const Config& cfg, uint32_t now, AlertCache& out, FetchError* error) 
 
   JsonDocument doc;
   int code = 0;
-  if (!net::httpGetJson(url, doc, &filter, &code, cfg.alertApiKey.c_str())) {
+  bool got = net::httpGetJson(url, doc, &filter, &code, cfg.alertApiKey.c_str());
+  if (httpCode) *httpCode = code;
+  if (!got) {
     if (code == 401 || code == 403) {
       if (error) *error = ERR_AUTH;
       LOGW("alert", "HTTP %d: key rejected, or used again within a minute", code);
