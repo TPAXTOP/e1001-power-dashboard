@@ -29,6 +29,13 @@
 // or on entering the portal, so a crash or reset before that rolls back.
 extern "C" bool verifyRollbackLater() { return true; }
 
+// The whole wake runs in loopTask. The core's 8 KB overflowed in the TLS
+// handshake of the update check (ECDSA certificate verify, deep in the
+// wake cycle): a crash on every cold boot, which also rolled back every new
+// image before it could confirm itself (core dump, Oct 2026). The low-water
+// mark is logged before every deep sleep.
+SET_LOOP_TASK_STACK_SIZE(16 * 1024);
+
 static const char* resetReasonName(esp_reset_reason_t r) {
   switch (r) {
     case ESP_RST_POWERON: return "power-on";

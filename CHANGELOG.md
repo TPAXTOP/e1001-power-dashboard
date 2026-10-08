@@ -8,8 +8,9 @@ newest published (non-pre)release; see [docs/RELEASING.md](docs/RELEASING.md).
 ## [Unreleased]
 
 ### Added
-- Diagnostic log on a microSD card (optional). Log lines are kept in RAM during a wake and written to the card right
-  before deep sleep, so the card is only powered for a fraction of a second per wake. `/log/YYYY-MM-DD.log` has
+- Diagnostic log on a microSD card (optional). Log lines are kept in RAM during a wake and written to the card in one
+  go right before deep sleep; the card is switched off while the device sleeps. (In 0.4.0-rc.4 an inserted card
+  turned the screen into noise: it was unpowered while the display used the lines they share.) `/log/YYYY-MM-DD.log` has
   every log line with its local time. Each wake starts with the firmware version, the wake reason and the reset
   reason (crashes and brownouts show up there). `/log/wakes-YYYY-MM.csv` has one row per wake: battery voltage,
   WiFi join and on time, requests, the air alert HTTP status, the screen refresh, the awake time and the sleep
@@ -27,7 +28,8 @@ newest published (non-pre)release; see [docs/RELEASING.md](docs/RELEASING.md).
   whole bar black; a yellow one is a grey hatched bar with the text on a white plate. `+N` counts further active
   alert types. Checked every 3 min (15 min at night) with exactly one request: the API refuses (HTTP 401) a key
   that is used again within about a minute, so the key must not be shared with other clients, and "key
-  rejected" is only shown after 5 refusals in a row. Needs an API key (portal); regions are configurable,
+  rejected" is only shown after 5 refusals in a row. A manual refresh within about a minute of the last check
+  skips the alert request instead of collecting a sure 401. Needs an API key (portal); regions are configurable,
   default 31 = Kyiv city. Alert data older than two intervals is not shown as an alert or as all-clear, but as "Air alert
   data … old".
 - Partial screen refresh. The screen is only redrawn when something on it changed, and then with a fast,
@@ -72,6 +74,11 @@ newest published (non-pre)release; see [docs/RELEASING.md](docs/RELEASING.md).
 - Offline wakes don't write flash; their state is kept in RTC memory.
 - The cache format changed (the SOC graph is cached separately), so the first wake after the update fetches
   everything again.
+
+### Fixed
+- Crash in the update check on every cold boot: the TLS handshake with GitHub (ECDSA certificate check) overflowed
+  the main task's 8 KB stack. It also made every new version roll back on its first wake (0.4.0-rc.4 did). The
+  stack is now 16 KB.
 
 ## [0.3.0] - 2026-10-07
 

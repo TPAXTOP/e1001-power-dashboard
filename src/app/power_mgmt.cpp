@@ -4,6 +4,8 @@
 #include <Wire.h>
 #include <driver/rtc_io.h>
 #include <esp_sleep.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 
 #include "../../include/pins.h"
 #include "../store/sd_log.h"
@@ -105,7 +107,8 @@ void deepSleep(uint32_t seconds) {
   }
   esp_sleep_enable_ext1_wakeup(mask, ESP_EXT1_WAKEUP_ANY_LOW);
 
-  LOGI("power", "deep sleep for %lus", (unsigned long)seconds);
+  LOGI("power", "deep sleep for %lus (stack never below %u B free)", (unsigned long)seconds,
+       (unsigned)uxTaskGetStackHighWaterMark(nullptr));
   sd_log::flush();
   sd_log::prepareSleep();
   Serial.flush();

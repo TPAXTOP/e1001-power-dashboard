@@ -103,6 +103,21 @@ State state() {
   return SD_OK;
 }
 
+static void powerOn() {
+  gpio_hold_dis((gpio_num_t)SD_EN_PIN);  // held low through the last deep sleep
+  pinMode(SD_EN_PIN, OUTPUT);
+  digitalWrite(SD_EN_PIN, HIGH);
+}
+
+void powerForBus() {
+  if (mounted || !cardPresent()) return;
+  powerOn();
+  delay(5);
+  // Deselected (CS high only once the card has power): it ignores the bus.
+  pinMode(SD_CS_PIN, OUTPUT);
+  digitalWrite(SD_CS_PIN, HIGH);
+}
+
 static void powerOff() {
   pinMode(SD_CS_PIN, INPUT);  // an unpowered card must not be fed through CS
   pinMode(SD_MISO_PIN, INPUT);
@@ -116,9 +131,7 @@ bool mount() {
     setStored(SD_NONE);
     return false;
   }
-  gpio_hold_dis((gpio_num_t)SD_EN_PIN);  // held low through the last deep sleep
-  pinMode(SD_EN_PIN, OUTPUT);
-  digitalWrite(SD_EN_PIN, HIGH);
+  powerOn();
   delay(20);  // supply ramp before the first clocks
 
   // The panel sleeps (or was never woken this boot); keep it deselected while
@@ -132,7 +145,7 @@ bool mount() {
     Serial.println("[sd] mount failed");
     SD.end();
     spi.end();
-    powerOff();
+    powerForBus();  // stays powered (deselected) in case the panel is used again
     setStored(SD_ERROR);
     return false;
   }
@@ -145,8 +158,8 @@ void unmount() {
   if (!mounted) return;
   SD.end();
   display::spi().end();
-  powerOff();
   mounted = false;
+  powerForBus();  // stays powered (deselected) in case the panel is used again
 }
 
 fs::FS& fs() { return SD; }
