@@ -19,6 +19,7 @@ struct Config {
   uint32_t backupMaxAgeS;  // Deye status tiles
   uint32_t socMaxAgeS;     // Deye SOC graph
   uint32_t fxMaxAgeS;
+  uint32_t alertMaxAgeS;
   uint32_t indoorIntervalS;
 
   bool nightEnabled;
@@ -31,7 +32,6 @@ struct Config {
 
   float vbatLow;
   float vbatCrit;
-  float vbatFull;
 
   float indoorTempOffset;
   float indoorRhOffset;
@@ -59,14 +59,19 @@ struct Config {
   String fxTarget;
   uint16_t fxHistoryDays;
 
+  String alertApiKey;   // api.ukrainealarm.com key, sent as the Authorization header
+  String alertRegions;  // comma-separated region ids (max 3), e.g. "31"
+
   String otaManifestUrl;
 
   bool widgetWeather;
   bool widgetOutage;
   bool widgetBackup;
+  bool widgetAlerts;
   bool stayAwakeOnUsb;
 
   bool hasWifi() const { return wifiSsid.length() > 0; }
+  bool hasAlerts() const { return widgetAlerts && alertApiKey.length() && alertRegions.length(); }
   bool hasDeye() const {
     return deyeAppId.length() && deyeAppSecret.length() && deyeEmail.length() &&
            deyePasswordSha256.length() && deyeDeviceSn.length();

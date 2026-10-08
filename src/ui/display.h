@@ -22,6 +22,7 @@ U8G2_FOR_ADAFRUIT_GFX& u8g2();  // font renderer bound to gfx()
 // (black) background each glyph renders as a filled black box.
 void setFont(const uint8_t* font);
 void clear();                 // white background
+void invertRect(int x, int y, int w, int h);  // flips black <-> white
 uint32_t frameCrc();          // CRC-32 of the canvas: "would the screen change?"
 
 // Full refresh of the canvas (~1.2-4 s, flashes), then panel deep sleep.

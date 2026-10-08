@@ -56,6 +56,17 @@ void setFont(const uint8_t* font) {
 
 void clear() { canvas->fillScreen(GxEPD_WHITE); }
 
+void invertRect(int x, int y, int w, int h) {
+  uint8_t* buf = canvas->getBuffer();
+  if (!buf) return;
+  const int stride = (kWidth + 7) / 8;
+  for (int yy = y < 0 ? 0 : y; yy < y + h && yy < kHeight; yy++) {
+    for (int xx = x < 0 ? 0 : x; xx < x + w && xx < kWidth; xx++) {
+      buf[yy * stride + xx / 8] ^= (uint8_t)(0x80 >> (xx & 7));
+    }
+  }
+}
+
 uint32_t frameCrc() {
   if (!canvas->getBuffer()) return 0;
   return crc32_calc(canvas->getBuffer(), (size_t)kWidth * kHeight / 8);

@@ -8,27 +8,43 @@ newest published (non-pre)release; see [docs/RELEASING.md](docs/RELEASING.md).
 ## [Unreleased]
 
 ### Added
+- Air raid alerts from api.ukrainealarm.com in the status bar, above every other message, in Ukrainian with the
+  API's own wording (e.g. `Дронова загроза (жовтий рівень) з 13:40`). Red alerts, which usually come without a
+  text, get the official names (`ПОВІТРЯНА ТРИВОГА з 14:05`, `ЗАГРОЗА АРТОБСТРІЛУ`, ...). A red alert turns the
+  whole bar black; a yellow one is a grey hatched bar with the text on a white plate. `+N` counts further active
+  alert types. Checked every 3 min (15 min at night) via the API's cheap status check: the region itself is only
+  fetched when something changed (or every 15 min). Needs an API key (portal); regions are configurable, default
+  31 = Kyiv city. Alert data older than two intervals is not shown as an alert or as all-clear, but as "Air alert
+  data … old".
 - Partial screen refresh. The screen is only redrawn when something on it changed, and then with a fast,
   flicker-free partial refresh (~0.5 s) instead of the black/white flash. A full refresh still clears ghosting
-  at most every 60 min or after 30 partial refreshes (both configurable), on a page switch, when the night
-  ends, below 12 °C indoors, and on the green button.
-- Per-source schedule instead of one wake interval. Each source has its own interval, and WiFi is only switched
-  on when one of them is due:
+  every 6 h (configurable, optionally also after N partial refreshes), on a page switch, when the night ends,
+  below 12 °C indoors, and on the green button.
+- Per-source intervals on one wake grid. The device wakes at the shortest enabled interval, on the clock (:00,
+  :03, :06, ... for 3 min), and on each wake refreshes every source that is due by then; no source gets a wake
+  of its own. WiFi is only switched on when an online source is due. Defaults:
+  - air raid alerts: every 3 min
   - inverter status (battery, grid, charge, load): every 3 min
   - inverter 24 h battery graph: every 15 min, fetching only the part since the last update
-  - outage schedule: every 10 min
+  - outage schedule: every 10 min (runs on every 3rd wake, i.e. 9 min)
   - weather: every 30 min
   - indoor sensor: every 3 min, without WiFi
-  The device also wakes (offline) exactly at outage start/end and on the full hour.
+  Outage start/end and the full hour fall on the 3-min grid.
 - Night mode, 03:00–08:00 by default: everything refreshes at most every 15 min and there is no hourly full
   refresh. Start, end and interval are configurable, and it can be switched off.
 - Connectivity in the status bar: a WiFi icon (crossed out without WiFi, with "!" when WiFi is up but nothing on
   the internet answers), and "No internet for …" and "Inverter offline for …" notices. The latter means Deye
   cloud answers, but the inverter's data logger stopped reporting.
 - Green button short press now fetches everything immediately and forces a full refresh.
+- Device battery: `charging` in the status bar while the battery reading says the device is on the charger.
 
 ### Changed
 - The refresh time ("updated HH:MM") is no longer shown in the status bar.
+- The device battery's "time since full charge" now counts from the end of the last charge, detected from the
+  voltage trend (rise while charging, drop when unplugged). Before, every wake at or above 4.15 V restarted it,
+  and a rested full cell stays above that for hours after unplugging, so the time read hours short. The
+  "Full-charge voltage" setting is gone. After the update the time is blank until the next charge.
+- The drain-per-day figure (`6%/d`) is removed from the status bar.
 - Durations in the status bar move in 5-min / 30-min / 1-hour steps, the outage countdown in 5-min (under an
   hour) and 10-min steps, and the device battery and indoor values have hysteresis, so they don't force a
   redraw on every wake.

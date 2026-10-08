@@ -257,14 +257,6 @@ static void test_battery_percent() {
   }
 }
 
-static void test_drain_per_day() {
-  TEST_ASSERT_EQUAL(-1, drainPerDay(6 * 3600, 90));         // too early
-  TEST_ASSERT_EQUAL(-1, drainPerDay(2 * 86400, -1));        // unknown percent
-  TEST_ASSERT_EQUAL(10, drainPerDay(2 * 86400, 80));        // 20% over 2 days
-  TEST_ASSERT_EQUAL(4, drainPerDay(12 * 3600, 98));         // 2% over 12h
-  TEST_ASSERT_EQUAL(0, drainPerDay(86400, 100));
-}
-
 static void test_format_duration() {
   char buf[12];
   formatDuration(45 * 60 + 59, buf, sizeof(buf));
@@ -389,7 +381,6 @@ int main(int, char**) {
   RUN_TEST(test_describe_weather);
   RUN_TEST(test_format_hourly_time);
   RUN_TEST(test_battery_percent);
-  RUN_TEST(test_drain_per_day);
   RUN_TEST(test_format_duration);
   RUN_TEST(test_max_precip_prob);
   RUN_TEST(test_outage_status);

@@ -5,6 +5,7 @@ $hosts = @(
     "app.yasno.ua",
     "eu1-developer.deyecloud.com",
     "api.exchangerate.host",
+    "api.ukrainealarm.com",
     "github.com",
     "objects.githubusercontent.com",
     "release-assets.githubusercontent.com",  # where release downloads redirect (OTA)

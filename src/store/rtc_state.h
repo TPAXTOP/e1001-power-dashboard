@@ -10,14 +10,14 @@
 
 struct RtcState {
   uint32_t lastAttemptEpoch[SRC_COUNT];  // last fetch attempt (success or not)
-  uint32_t lastIndoorEpoch;              // last SHT4x scheduling slot
   // Values currently on screen, for hysteresis (see dash::stickyRound).
   bool hasShownIndoor;
   int16_t shownTemp;
   int16_t shownRh;
   int16_t shownBattery;  // 5 % step, -1 = none yet
   uint8_t connectivity;  // dash::Connectivity after the last online wake
-  uint8_t outageErr;     // why the last outage fetch failed (wake_cycle OutageErr)
+  uint8_t outageErr;     // why the last outage fetch failed (yasno_api::FetchError)
+  uint8_t alertErr;      // why the last alert fetch failed (alert_api::FetchError)
   // WiFi fast reconnect: the AP and channel of the last successful join.
   bool hasBssid;
   uint8_t bssid[6];

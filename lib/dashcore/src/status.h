@@ -15,12 +15,34 @@ namespace dash {
 // Returns -1 for volts <= 0 ("unknown" from power_mgmt::batteryVolts()).
 int batteryPercentFromVolts(float volts);
 
-// Below this much time since the last full charge, a drain rate is noise.
-constexpr uint32_t kDrainMinS = 12 * 3600;
+// Charge detection without a charger signal (there is no USB/charger status
+// on this board), from the pre-WiFi battery reading of each wake:
+// - a new charge starts when the reading is >= kChargeRiseV above the lowest
+//   reading since the previous charge (discharge never raises it that much;
+//   ADC noise is ~10 mV). There is deliberately no "high voltage = just
+//   charged" shortcut: a rested full cell sits within the plateau below for
+//   hours, which would show "charging" all that time.
+// - while charging, every reading is a new peak (constant-current phase) or
+//   sits at the peak (constant-voltage phase): within kChargePlateauV of it.
+// - unplugged (or charge terminated), the cell relaxes tens of mV below the
+//   peak within minutes and then only falls: charging has ended.
+// endEpoch is the last wake that still counted as charging, so "now -
+// endEpoch" is the wall-clock time since the last charge, off by at most
+// the relaxation time - not by the hours a rested full cell stays > 4.15 V.
+constexpr float kChargeRiseV = 0.05f;
+constexpr float kChargePlateauV = 0.015f;
 
-// Average drain since the last full charge, in % per 24 h (rounded).
-// Returns -1 when sinceFullS < kDrainMinS or percentNow is unknown (< 0).
-int drainPerDay(uint32_t sinceFullS, int percentNow);
+struct ChargeState {
+  float peakV = 0;        // highest reading of the current/last charge; 0 = none seen
+  float minV = 0;         // lowest reading since that charge started; 0 = none
+  uint32_t endEpoch = 0;  // last wake that counted as charging; 0 = none seen
+  bool charging = false;  // the latest update counted as charging
+};
+
+// Feeds one reading (volts <= 0 = unknown: ignored). Returns true when the
+// charge itself changed (started, still going, or a new peak), i.e. when
+// the state should be persisted right away.
+bool updateCharge(ChargeState& s, float volts, uint32_t now);
 
 // Compact duration: "45m", "1h 20m", "2h", "14h", "3d 4h", "3d", "12d". buf >= 12.
 void formatDuration(uint32_t seconds, char* buf, int bufLen);
@@ -60,11 +82,6 @@ int maxPrecipProb(const WeatherData& w, const char* nowLocalIso, int hours);
 // The countdown ("in 1h 20m") is rounded up to 5 min within the hour and to
 // 10 min beyond, so the text does not change on every wake.
 bool formatOutageStatus(const OutageSchedule& s, int nowMin, char* buf, int bufLen);
-
-// Next minute (since today's local midnight; tomorrow is +1440) after nowMin
-// at which an outage starts or ends, using the same spans as the status line.
-// -1 when there is none. Used to wake exactly at "Power off now".
-int nextOutageBoundaryMin(const OutageSchedule& s, int nowMin);
 
 // --- SOC history -------------------------------------------------------------
 

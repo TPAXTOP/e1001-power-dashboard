@@ -12,9 +12,10 @@ namespace net {
 NetworkClientSecure& tlsClient();
 
 // GET url, parse JSON body into doc (optionally with a deserialization
-// filter). Returns true on HTTP 200 + parse success.
+// filter). `authorization` is sent verbatim as the Authorization header when
+// set. Returns true on HTTP 200 + parse success.
 bool httpGetJson(const String& url, JsonDocument& doc, const JsonDocument* filter = nullptr,
-                 int* httpCodeOut = nullptr);
+                 int* httpCodeOut = nullptr, const char* authorization = nullptr);
 
 // POST a JSON body, parse JSON response. Adds Authorization: Bearer when set.
 bool httpPostJson(const String& url, const String& body, JsonDocument& doc,
