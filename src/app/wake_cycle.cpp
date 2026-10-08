@@ -36,6 +36,11 @@ static const float kColdPanelC = 12.0f;
 // outage countdown flips to "Power off now" exactly on the slot).
 static const uint32_t kSlotLagS = 5;
 
+// api.ukrainealarm.com answers 401 not only for a bad key but also when the
+// key is used too often, so one 401 proves nothing: only this many in a row
+// (one per alert interval) count as "key rejected".
+static const uint8_t kAlertAuthFailsShown = 5;
+
 // Cached Yasno data crossing midnight: yesterday's "tomorrow" is now "today".
 static void rollOverOutageDays(dash::OutageSchedule& sched) {
   time_t now = time(nullptr);
@@ -426,13 +431,15 @@ uint32_t run(Config& cfg, PersistedState& st, const Wake& wake) {
     attempted(SRC_ALERT);
     static alert_api::AlertCache fresh;
     alert_api::FetchError err = alert_api::ERR_NONE;
-    if (alert_api::fetch(cfg, hasAlert ? &alertCache : nullptr, now, fresh, &err)) {
+    if (alert_api::fetch(cfg, now, fresh, &err)) {
       alertCache = fresh;
       hasAlert = true;
       rs.alertErr = alert_api::ERR_NONE;
+      rs.alertAuthFails = 0;
       succeeded(SRC_ALERT, &fresh, sizeof(fresh));
     } else {
       rs.alertErr = err;
+      if (err == alert_api::ERR_AUTH && rs.alertAuthFails < 255) rs.alertAuthFails++;
     }
   }
   if (runs(SRC_WEATHER)) {
@@ -558,7 +565,8 @@ uint32_t run(Config& cfg, PersistedState& st, const Wake& wake) {
         hasAlert && !alertView.stale && alertCache.status.level != dash::ALERT_NONE;
     alertView.status = alertCache.status;
   }
-  alertView.keyRejected = cfg.hasAlerts() && rs.alertErr == alert_api::ERR_AUTH;
+  alertView.keyRejected = cfg.hasAlerts() && rs.alertErr == alert_api::ERR_AUTH &&
+                          rs.alertAuthFails >= kAlertAuthFailsShown;
   alertView.unavailable = cfg.hasAlerts() && !hasAlert && rs.lastAttemptEpoch[SRC_ALERT];
 
   // The logger lost its own connection: Deye cloud still answers, but with a

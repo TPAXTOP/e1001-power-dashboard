@@ -197,7 +197,7 @@ below 3.7 V. Your settings survive updates.
 | Screen says **BATTERY EMPTY** | Connect USB-C, then press any button |
 | No indoor row under the weather | The onboard sensor didn't answer. Check that `0x44` is in the `I2C devices:` log line |
 | Battery shows no "since charge" time | No charge seen since the update. Charge the device once; the status bar shows `charging` while it does. The `charge:` log line shows what the detection sees |
-| Status bar says **Air alert API key rejected** | The api.ukrainealarm.com key is wrong or revoked. Hold green and fix it |
+| Status bar says **Air alert API key rejected** | The api.ukrainealarm.com key was refused 5 times in a row. The API also refuses a key that is used more than about once a minute, so make sure no other app or script uses the same key. Otherwise the key is wrong or revoked: hold green and fix it |
 | Upload fails with "Failed to connect" | The device was asleep. Press green and retry immediately |
 | Boot loop right after flashing | See the note in step 6 (`memory_type`) |
 | Portal says an update **was rolled back** | That version failed its first wake and the device went back. The device skips it until a newer release appears. **Check for update now** retries it on purpose. Please open an issue with the serial log |

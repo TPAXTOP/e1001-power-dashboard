@@ -186,7 +186,8 @@ static void handleRoot() {
             "refreshes everything that is due on each wake. Outage start/end show exactly "
             "when this divides 30 min.</p>";
   }
-  addNum(html, "iv_alert", "Air raid alerts", c.alertMaxAgeS);
+  addNum(html, "iv_alert", "Air raid alerts (at least 90: the API refuses a key used more than about once a minute)",
+         c.alertMaxAgeS);
   addNum(html, "iv_backup", "Inverter status: battery, grid, charge, load", c.backupMaxAgeS);
   addNum(html, "iv_soc", "Inverter 24 h battery graph", c.socMaxAgeS);
   addNum(html, "iv_outage", "Outage schedule", c.outageMaxAgeS);
@@ -210,7 +211,8 @@ static void handleRoot() {
   html += "<h2>Air raid alerts (api.ukrainealarm.com)</h2>";
   addText(html, "alert_key", "API key (request one at api.ukrainealarm.com)", c.alertApiKey);
   addText(html, "alert_reg",
-          "Region ids, comma-separated, up to 3 (31 = Kyiv city; list: /api/v3/regions)",
+          "Region ids, comma-separated, up to 3 (31 = Kyiv city; list: /api/v3/regions). "
+          "Don't use the same key anywhere else: the API allows about one request a minute per key",
           c.alertRegions);
 
   html += "<h2>Power outage (Yasno)</h2>";
@@ -293,7 +295,9 @@ static void handleSave() {
   c.weatherMaxAgeS = interval("age_weather", c.weatherMaxAgeS);
   c.indoorIntervalS = interval("iv_indoor", c.indoorIntervalS);
   c.fxMaxAgeS = interval("age_fx", c.fxMaxAgeS);
+  // The alert API refuses (401) a key used again within about a minute.
   c.alertMaxAgeS = interval("iv_alert", c.alertMaxAgeS);
+  if (c.alertMaxAgeS < 90) c.alertMaxAgeS = 90;
 
   c.nightEnabled = server.hasArg("night_on");
   c.nightStartMin = parseHhmm(arg("night_start", ""), c.nightStartMin);

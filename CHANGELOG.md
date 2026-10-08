@@ -12,9 +12,10 @@ newest published (non-pre)release; see [docs/RELEASING.md](docs/RELEASING.md).
   API's own wording (e.g. `Дронова загроза (жовтий рівень) з 13:40`). Red alerts, which usually come without a
   text, get the official names (`ПОВІТРЯНА ТРИВОГА з 14:05`, `ЗАГРОЗА АРТОБСТРІЛУ`, ...). A red alert turns the
   whole bar black; a yellow one is a grey hatched bar with the text on a white plate. `+N` counts further active
-  alert types. Checked every 3 min (15 min at night) via the API's cheap status check: the region itself is only
-  fetched when something changed (or every 15 min). Needs an API key (portal); regions are configurable, default
-  31 = Kyiv city. Alert data older than two intervals is not shown as an alert or as all-clear, but as "Air alert
+  alert types. Checked every 3 min (15 min at night) with exactly one request: the API refuses (HTTP 401) a key
+  that is used again within about a minute, so the key must not be shared with other clients, and "key
+  rejected" is only shown after 5 refusals in a row. Needs an API key (portal); regions are configurable,
+  default 31 = Kyiv city. Alert data older than two intervals is not shown as an alert or as all-clear, but as "Air alert
   data … old".
 - Partial screen refresh. The screen is only redrawn when something on it changed, and then with a fast,
   flicker-free partial refresh (~0.5 s) instead of the black/white flash. A full refresh still clears ghosting
