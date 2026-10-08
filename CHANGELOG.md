@@ -7,6 +7,8 @@ newest published (non-pre)release; see [docs/RELEASING.md](docs/RELEASING.md).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-09
+
 ### Added
 - Diagnostic log on a microSD card (optional). Log lines are kept in RAM during a wake and written to the card in one
   go right before deep sleep; the card is switched off while the device sleeps. (In 0.4.0-rc.4 an inserted card
@@ -159,7 +161,8 @@ Bring-up fixes from the first flash on real hardware:
   - provisioning and maintenance web portal
   - manual and pull OTA
 
-[Unreleased]: https://github.com/TPAXTOP/e1001-power-dashboard/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/TPAXTOP/e1001-power-dashboard/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/TPAXTOP/e1001-power-dashboard/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/TPAXTOP/e1001-power-dashboard/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/TPAXTOP/e1001-power-dashboard/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/TPAXTOP/e1001-power-dashboard/compare/v0.1.0...v0.1.2
