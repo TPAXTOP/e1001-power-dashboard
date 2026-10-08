@@ -20,7 +20,9 @@ struct StatusBarView {
   int batteryPercent = -1;   // 5 % step, -1 = unknown reading
   bool charging = false;     // the battery reading says "on the charger"
   bool hasSinceCharge = false;
+  bool sinceChargeEstimated = false;  // no charge seen yet: counted from the first reading
   uint32_t sinceChargeS = 0;  // wall-clock time since the last charge ended (quantized)
+  uint8_t sdState = 0;        // sd_log::State: icon left of the connectivity icon
 };
 
 namespace render_statusbar {

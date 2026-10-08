@@ -1,6 +1,7 @@
 #include "maintenance.h"
 
 #include <ESPmDNS.h>
+#include <SD.h>
 #include <Update.h>
 #include <WebServer.h>
 #include <WiFi.h>
@@ -8,11 +9,15 @@
 #include <schedule.h>
 #include <status.h>
 
+#include <algorithm>
+#include <vector>
+
 #include "../../include/defaults.h"
 #include "../../include/version.h"
 #include "../hw/sht4x.h"
 #include "../net/ota_pull.h"
 #include "../net/time_sync.h"
+#include "../store/sd_log.h"
 #include "../store/state_store.h"
 #include "../ui/display.h"
 #include "../ui/render_system.h"
@@ -112,12 +117,30 @@ static String statusLine() {
   if (time_sync::timeValid() && st.chargeEndEpoch && now >= st.chargeEndEpoch) {
     char dur[12];
     dash::formatDuration(now - st.chargeEndEpoch, dur, sizeof(dur));
-    s += ", last charge ended ";
-    s += dur;
-    s += " ago (peak " + String(st.chargePeakV, 3) + " V, lowest since " +
-         String(st.chargeMinV, 3) + " V)";
+    if (st.chargeEndEstimated) {
+      s += ", no charge seen yet: counting from the first reading, ~";
+      s += dur;
+      s += " ago (exact after the next charge)";
+    } else {
+      s += ", last charge ended ";
+      s += dur;
+      s += " ago (peak " + String(st.chargePeakV, 3) + " V, lowest since " +
+           String(st.chargeMinV, 3) + " V)";
+    }
   } else {
     s += ", no charge seen yet";
+  }
+  switch (sd_log::state()) {
+    case sd_log::SD_NONE:
+      s += "<br>microSD: no card in the slot (logging off)";
+      break;
+    case sd_log::SD_OK:
+      s += "<br>microSD: card in the slot, logging. <a href='/logs'>Log files</a>";
+      break;
+    case sd_log::SD_ERROR:
+      s += "<br>microSD: card in the slot, but the last log write FAILED. "
+           "<a href='/logs'>Details</a>";
+      break;
   }
   if (st.otaBadVersion.length()) {
     s += "<br>Update to " + htmlEscape(st.otaBadVersion) +
@@ -408,6 +431,78 @@ static void handleUpdateUpload() {
   }
 }
 
+static String humanBytes(uint64_t b) {
+  if (b >= 10ULL * 1024 * 1024) return String((unsigned long)(b / (1024 * 1024))) + " MB";
+  if (b >= 10 * 1024) return String((unsigned long)(b / 1024)) + " KB";
+  return String((unsigned long)b) + " B";
+}
+
+// Log files on the card, newest first, with links to view them.
+static void handleLogs() {
+  lastActivityMs = millis();
+  sd_log::flush();  // this session's lines too
+  String html =
+      "<!DOCTYPE html><html><head><meta charset='utf-8'>"
+      "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+      "<title>eink-dash logs</title><style>body{font-family:system-ui;max-width:640px;"
+      "margin:1em auto;padding:0 1em}td{padding:.2em .8em .2em 0}</style></head><body>"
+      "<h1>microSD logs</h1><p><a href='/'>Back</a></p>";
+  if (!sd_log::mount()) {
+    html += sd_log::cardPresent()
+                ? "<p>A card is in the slot, but it could not be mounted. Use a FAT16/FAT32 "
+                  "(not exFAT) formatted card; very old cards can also fail in SPI mode.</p>"
+                : "<p>No card in the slot.</p>";
+    server.send(200, "text/html", html + "</body></html>");
+    return;
+  }
+  fs::FS& fs = sd_log::fs();
+  html += "<p>Card " + humanBytes(SD.cardSize()) + ", " + humanBytes(SD.usedBytes()) +
+          " used. Day logs <code>YYYY-MM-DD.log</code>, one CSV row per wake in "
+          "<code>wakes-YYYY-MM.csv</code>. The oldest files are deleted above 85 % full.</p>";
+  std::vector<std::pair<String, size_t>> files;
+  File dir = fs.open(sd_log::kDir);
+  if (dir) {
+    for (File f = dir.openNextFile(); f; f = dir.openNextFile()) {
+      if (!f.isDirectory()) files.push_back({String(f.name()), f.size()});
+      f.close();
+    }
+    dir.close();
+  }
+  std::sort(files.begin(), files.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
+  html += "<table>";
+  for (const auto& f : files) {
+    html += "<tr><td><a href='/logs/file?f=" + f.first + "'>" + htmlEscape(f.first) +
+            "</a></td><td>" + humanBytes(f.second) + "</td><td><a href='/logs/file?f=" +
+            f.first + "&dl=1'>download</a></td></tr>";
+  }
+  html += "</table>";
+  if (files.empty()) html += "<p>No log files yet.</p>";
+  server.send(200, "text/html", html + "</body></html>");
+}
+
+static void handleLogFile() {
+  lastActivityMs = millis();
+  String name = server.arg("f");
+  // Plain file names inside the log directory only.
+  if (!name.length() || name.indexOf('/') >= 0 || name.indexOf('\\') >= 0 ||
+      name.indexOf("..") >= 0 || !sd_log::mount()) {
+    server.send(404, "text/plain", "not found");
+    return;
+  }
+  File f = sd_log::fs().open(String(sd_log::kDir) + "/" + name);
+  if (!f || f.isDirectory()) {
+    server.send(404, "text/plain", "not found");
+    return;
+  }
+  if (server.hasArg("dl")) {
+    server.sendHeader("Content-Disposition", "attachment; filename=\"" + name + "\"");
+  }
+  server.streamFile(f, name.endsWith(".csv") ? "text/csv; charset=utf-8"
+                                             : "text/plain; charset=utf-8");
+  f.close();
+  lastActivityMs = millis();
+}
+
 void run(Config& cfg, bool provisioning) {
   gCfg = &cfg;
   // Reaching the portal is enough to accept a fresh image: from here any
@@ -455,6 +550,8 @@ void run(Config& cfg, bool provisioning) {
   server.on("/save", HTTP_POST, handleSave);
   server.on("/update", HTTP_POST, handleUpdateDone, handleUpdateUpload);
   server.on("/ota-check", HTTP_POST, handleOtaCheck);
+  server.on("/logs", HTTP_GET, handleLogs);
+  server.on("/logs/file", HTTP_GET, handleLogFile);
   server.on("/reboot", HTTP_POST, []() {
     server.send(200, "text/plain", "rebooting");
     rebootRequested = true;
@@ -463,16 +560,21 @@ void run(Config& cfg, bool provisioning) {
   LOGI("maint", "portal at http://%s (%s)", ip.c_str(), apMode ? apSsid : "STA");
 
   lastActivityMs = millis();
+  uint32_t lastFlushMs = millis();
   while (true) {
     server.handleClient();
     delay(2);
+    if (millis() - lastFlushMs > 60000) {  // portal sessions can last 10 min
+      sd_log::flush();
+      lastFlushMs = millis();
+    }
     if (rebootRequested) {
       delay(500);  // let the response flush
-      ESP.restart();
+      power_mgmt::restart();
     }
     if (millis() - lastActivityMs > MAINTENANCE_TIMEOUT_MS) {
       LOGI("maint", "timeout, rebooting");
-      ESP.restart();
+      power_mgmt::restart();
     }
   }
 }

@@ -40,6 +40,7 @@ void load(PersistedState& st) {
   st.chargePeakV = getFloatOr(p, "chg_peak", 0);
   st.chargeMinV = getFloatOr(p, "chg_min", 0);
   st.chargeEndEpoch = p.getUInt("chg_end", 0);
+  st.chargeEndEstimated = p.getBool("chg_est", false);
   st.lastPage = p.getUChar("last_page", 0);
   // isKey first: a missing string key logs an [E] line (new keys in 0.3.0).
   st.otaTriedVersion = p.isKey("ota_tried") ? p.getString("ota_tried", "") : "";
@@ -67,6 +68,7 @@ void save(const PersistedState& st) {
   p.putFloat("chg_peak", st.chargePeakV);
   p.putFloat("chg_min", st.chargeMinV);
   p.putUInt("chg_end", st.chargeEndEpoch);
+  p.putBool("chg_est", st.chargeEndEstimated);
   p.putUChar("last_page", st.lastPage);
   p.putString("ota_tried", st.otaTriedVersion);
   p.putString("ota_bad", st.otaBadVersion);

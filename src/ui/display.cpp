@@ -76,6 +76,7 @@ uint32_t frameCrc() {
 // refresh is a full one (the panel content is unknown).
 static void panelInit(bool initial) {
   if (panelUp) return;
+  hspi.end();  // the SD log may have left the bus begun with its MISO pin
   // GxEPD2 does digitalWrite() before pinMode() on CS/DC/RST, which core 3.x
   // logs as an error for a pin not yet claimed as GPIO. Claim them first;
   // pull-ups keep CS deselected and RST released until the driver drives them.
@@ -123,5 +124,7 @@ void hibernate() {
 }
 
 uint32_t pushSerial() { return serial; }
+
+SPIClass& spi() { return hspi; }
 
 }  // namespace display

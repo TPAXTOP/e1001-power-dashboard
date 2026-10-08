@@ -8,6 +8,7 @@
 #include <time.h>
 
 #include "../../include/defaults.h"
+#include "../../include/version.h"
 #include "../api/alert_api.h"
 #include "../api/deye_api.h"
 #include "../api/fx_api.h"
@@ -19,6 +20,7 @@
 #include "../net/time_sync.h"
 #include "../net/wifi_mgr.h"
 #include "../store/rtc_state.h"
+#include "../store/sd_log.h"
 #include "../ui/display.h"
 #include "../ui/render_system.h"
 #include "../ui/screen.h"
@@ -220,8 +222,40 @@ static void buildStatusBar(const Config& cfg, const PersistedState& st, RtcState
   sb.charging = charging;
   if (!charging && timeOk && st.chargeEndEpoch && now >= st.chargeEndEpoch) {
     sb.hasSinceCharge = true;
+    sb.sinceChargeEstimated = st.chargeEndEstimated;
     sb.sinceChargeS = dash::quantizeAge(now - st.chargeEndEpoch);
   }
+  // Card detect + the previous wake's write result (this wake's log is
+  // written right before deep sleep, after the panel).
+  sb.sdState = sd_log::state();
+}
+
+// The last thing on the panel when the battery dies: how long it ran, and
+// on which firmware, so battery life can be compared across versions.
+static void batteryEmpty(const Config& cfg, const PersistedState& st, float vbat) {
+  time_sync::initFromRtc(cfg);
+  uint32_t now = time_sync::nowEpoch();
+  char ran[96] = "";
+  if (time_sync::timeValid() && st.chargeEndEpoch && now >= st.chargeEndEpoch) {
+    char dur[12], since[24];
+    dash::formatDuration(now - st.chargeEndEpoch, dur, sizeof(dur));
+    time_t t = st.chargeEndEpoch;
+    struct tm local;
+    localtime_r(&t, &local);
+    snprintf(since, sizeof(since), "%02d.%02d %02d:%02d", local.tm_mday, local.tm_mon + 1,
+             local.tm_hour, local.tm_min);
+    if (st.chargeEndEstimated) {
+      snprintf(ran, sizeof(ran), "Ran ~%s on battery (no charge seen; counted from %s)", dur,
+               since);
+    } else {
+      snprintf(ran, sizeof(ran), "Ran %s on battery (charge ended %s)", dur, since);
+    }
+    LOGW("cycle", "battery empty at %.3fV: %s", vbat, ran);
+  }
+  display::begin();
+  render_system::renderBatteryEmpty(vbat, ran, APP_VERSION);
+  display::show();
+  screen::invalidate();
 }
 
 static void outageErrorText(const PersistedState& st, const RtcState& rs,
@@ -252,10 +286,7 @@ uint32_t run(Config& cfg, PersistedState& st, const Wake& wake) {
   LOGI("cycle", "boot=%lu vbat=%.3fV usb=%d", st.bootCount, vbat, usb);
 
   if (!usb && vbat > 0.5f && vbat < cfg.vbatCrit) {
-    display::begin();
-    render_system::renderBatteryEmpty(vbat);
-    display::show();
-    screen::invalidate();
+    batteryEmpty(cfg, st, vbat);
     state_store::save(st);
     rtc_state::commit();
     power_mgmt::deepSleep(0);  // button-only wake
@@ -364,8 +395,11 @@ uint32_t run(Config& cfg, PersistedState& st, const Wake& wake) {
 
   // --- network ---------------------------------------------------------
   bool online = false;
+  uint32_t wifiStartMs = 0, wifiJoinMs = 0, wifiOnMs = 0;  // CSV: radio time
   if (goOnline) {
+    wifiStartMs = millis();
     online = wifi_mgr::connect(cfg);
+    wifiJoinMs = millis() - wifiStartMs;
     if (online) {
       st.consecWifiFails = 0;
       // now < lastSntpEpoch (clock jumped back) wraps to a huge age -> resync.
@@ -427,11 +461,22 @@ uint32_t run(Config& cfg, PersistedState& st, const Wake& wake) {
   };
 
   // Alerts first: the most time-critical source.
+  int alertHttp = -999;  // CSV: not requested this wake
   if (runs(SRC_ALERT)) {
     attempted(SRC_ALERT);
     static alert_api::AlertCache fresh;
     alert_api::FetchError err = alert_api::ERR_NONE;
-    if (alert_api::fetch(cfg, now, fresh, &err)) {
+    // For the SD log: is a 401 the "same key within a minute" limit? The
+    // gap to the previous request (any wake, any reason) answers that.
+    uint32_t reqAt = time_sync::nowEpoch();
+    if (rs.lastAlertRequestEpoch && reqAt >= rs.lastAlertRequestEpoch) {
+      LOGI("alert", "request %lus after the previous one",
+           (unsigned long)(reqAt - rs.lastAlertRequestEpoch));
+    } else {
+      LOGI("alert", "request (no previous one in RTC memory)");
+    }
+    rs.lastAlertRequestEpoch = reqAt;
+    if (alert_api::fetch(cfg, now, fresh, &err, &alertHttp)) {
       alertCache = fresh;
       hasAlert = true;
       rs.alertErr = alert_api::ERR_NONE;
@@ -440,6 +485,8 @@ uint32_t run(Config& cfg, PersistedState& st, const Wake& wake) {
     } else {
       rs.alertErr = err;
       if (err == alert_api::ERR_AUTH && rs.alertAuthFails < 255) rs.alertAuthFails++;
+      LOGW("alert", "failed (HTTP %d), %u auth refusal(s) since the last success", alertHttp,
+           rs.alertAuthFails);
     }
   }
   if (runs(SRC_WEATHER)) {
@@ -509,6 +556,7 @@ uint32_t run(Config& cfg, PersistedState& st, const Wake& wake) {
   charge.peakV = st.chargePeakV;
   charge.minV = st.chargeMinV;
   charge.endEpoch = st.chargeEndEpoch;
+  charge.estimated = st.chargeEndEstimated;
   bool chargeChanged = false;
   if (timeOk) {
     if (online) st.lastOnlineEpoch = now;
@@ -516,9 +564,11 @@ uint32_t run(Config& cfg, PersistedState& st, const Wake& wake) {
     st.chargePeakV = charge.peakV;
     st.chargeMinV = charge.minV;
     st.chargeEndEpoch = charge.endEpoch;
-    LOGI("cycle", "charge: %s, peak %.3fV, min %.3fV, ended %lus ago",
+    st.chargeEndEstimated = charge.estimated;
+    LOGI("cycle", "charge: %s, peak %.3fV, min %.3fV, ended %lus ago%s",
          charge.charging ? "charging" : "not charging", charge.peakV, charge.minV,
-         charge.endEpoch && now >= charge.endEpoch ? (unsigned long)(now - charge.endEpoch) : 0UL);
+         charge.endEpoch && now >= charge.endEpoch ? (unsigned long)(now - charge.endEpoch) : 0UL,
+         charge.estimated ? " (estimate: no charge seen yet)" : "");
   }
 
   // --- OTA check (before the panel refresh, while WiFi is up) -------------
@@ -531,7 +581,7 @@ uint32_t run(Config& cfg, PersistedState& st, const Wake& wake) {
       net::closeAll();
       wifi_mgr::disconnect();
       rtc_state::commit();
-      ESP.restart();
+      power_mgmt::restart();
     }
   }
 
@@ -541,6 +591,7 @@ uint32_t run(Config& cfg, PersistedState& st, const Wake& wake) {
   if (goOnline) {
     net::closeAll();
     wifi_mgr::disconnect();  // radio off before the (slow) panel refresh
+    wifiOnMs = millis() - wifiStartMs;
   }
 
   // --- derived view -------------------------------------------------------
@@ -616,7 +667,7 @@ uint32_t run(Config& cfg, PersistedState& st, const Wake& wake) {
   policy.fullRefreshMin = cfg.fullRefreshMin;
   policy.maxPartials = cfg.maxPartials;
   policy.cold = hasIndoor && indoorT + cfg.indoorTempOffset < kColdPanelC;
-  screen::present(frame, policy);
+  screen::Result shown = screen::present(frame, policy);
 
   // A freshly updated image that rendered and got online is healthy; until
   // then any reset rolls it back (main.cpp retries before giving up).
@@ -639,6 +690,40 @@ uint32_t run(Config& cfg, PersistedState& st, const Wake& wake) {
     LOGI("cycle", "next wake %02d:%02d in %lus (tick %lus)", local.tm_hour, local.tm_min,
          (unsigned long)sleepS, (unsigned long)plan.tick);
   }
+
+  // One CSV row per wake on the SD card (battery-life comparisons).
+  static const char* const kCsvHeader =
+      "time,fw,wake,vbat,batt_pct,charging,since_charge_h,since_charge_estimated,online,"
+      "wifi_ok,wifi_join_ms,wifi_on_ms,requests,responses,transport_errors,alert_http,"
+      "alert_auth_fails,screen,indoor_c,sleep_s";
+  static const char* const kScreen[] = {"unchanged", "partial", "full"};
+  const net::Counters& nc = net::counters();
+  char when[20] = "";
+  if (timeOk) {
+    time_t t = now;
+    struct tm local;
+    localtime_r(&t, &local);
+    strftime(when, sizeof(when), "%Y-%m-%d %H:%M:%S", &local);
+  }
+  char sinceH[12] = "", alertCol[8] = "", indoorCol[8] = "";
+  if (timeOk && st.chargeEndEpoch && now >= st.chargeEndEpoch) {
+    snprintf(sinceH, sizeof(sinceH), "%.2f", (now - st.chargeEndEpoch) / 3600.0f);
+  }
+  if (alertHttp != -999) snprintf(alertCol, sizeof(alertCol), "%d", alertHttp);
+  if (hasIndoor) snprintf(indoorCol, sizeof(indoorCol), "%.1f", indoorT);
+  char row[256];
+  snprintf(row, sizeof(row), "%s,%s,%s,%.3f,%d,%d,%s,%d,%d,%d,%lu,%lu,%d,%d,%d,%s,%u,%s,%s,%lu",
+           when, APP_VERSION,
+           wake.coldBoot        ? "cold"
+           : wake.refreshButton ? "refresh"
+           : wake.pageButton    ? "page"
+                                : "timer",
+           vbat, dash::batteryPercentFromVolts(vbat), charge.charging ? 1 : 0, sinceH,
+           st.chargeEndEstimated ? 1 : 0, goOnline ? 1 : 0, online ? 1 : 0,
+           (unsigned long)wifiJoinMs, (unsigned long)wifiOnMs, nc.attempts, nc.responses,
+           nc.transportErrors, alertCol, rs.alertAuthFails, kScreen[shown], indoorCol,
+           (unsigned long)sleepS);
+  sd_log::setWakeRow(kCsvHeader, row);
 
   rtc_state::commit();
   return sleepS;

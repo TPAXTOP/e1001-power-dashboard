@@ -30,3 +30,12 @@
 #define BAT_ADC_PIN 1
 #define BAT_EN_PIN 21
 #define BAT_DIVIDER 2.0f
+
+// microSD slot (Seeed Arduino cookbook, reTerminal E10xx). SCK/MOSI are the
+// EPD's; the card has its own CS and a MISO line the write-only panel lacks.
+// Its 3.3 V rail is behind a load switch, so the card is only powered while
+// the log is written.
+#define SD_EN_PIN 16   // high = card powered
+#define SD_DET_PIN 15  // low = card inserted (needs the pullup)
+#define SD_CS_PIN 14
+#define SD_MISO_PIN 8

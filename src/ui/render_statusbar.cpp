@@ -20,8 +20,9 @@ static const int kMidY = kTop + 16;       // vertical center of the 28px content
 static const int kPlateTop = kContentTop + 3;
 static const int kPlateH = 22;
 
-// Right block, right-aligned at x=792: [wifi] [batt] 80% · 3d 4h
-// ("80% · charging" while the battery reading says it is on the charger).
+// Right block, right-aligned at x=792: [sd] [wifi] [batt] 80% · 3d 4h
+// ("80% · charging" while the battery reading says it is on the charger,
+// "~3d 4h" while no charge was seen yet and the time is an estimate).
 // Returns the x where the block starts.
 static int renderRight(const StatusBarView& v) {
   char text[40];
@@ -36,7 +37,8 @@ static int renderRight(const StatusBarView& v) {
   } else if (v.hasSinceCharge) {
     char since[12];
     dash::formatDuration(v.sinceChargeS, since, sizeof(since));
-    snprintf(text + n, sizeof(text) - n, " \xC2\xB7 %s", since);
+    snprintf(text + n, sizeof(text) - n, " \xC2\xB7 %s%s", v.sinceChargeEstimated ? "~" : "",
+             since);
   }
 
   display::setFont(u8g2_font_helvB08_tf);
@@ -51,6 +53,10 @@ static int renderRight(const StatusBarView& v) {
   if (v.connectivity != dash::CONN_UNKNOWN) {
     x -= 12 + widgets::kWifiIconW;
     widgets::drawWifiIcon(x, kMidY, v.connectivity);
+  }
+  if (v.sdState != 0) {  // sd_log::SD_NONE: no card, no icon
+    x -= 10 + widgets::kSdIconW;
+    widgets::drawSdIcon(x, kMidY, v.sdState == 2);  // sd_log::SD_ERROR
   }
   return x;
 }

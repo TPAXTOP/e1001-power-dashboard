@@ -38,7 +38,56 @@ NetworkClientSecure& tlsClient() {
 // request (~1 s of radio time each).
 static HTTPClient& http() {
   static HTTPClient client;
+  static bool inited = false;
+  if (!inited) {
+    client.collectAllHeaders();  // logged for error responses only, filtered
+    inited = true;
+  }
   return client;
+}
+
+// "host/path" without scheme and query: the Deye token URL carries the appId.
+static String logUrl(const String& url) {
+  int start = url.indexOf("://");
+  start = start < 0 ? 0 : start + 3;
+  int end = url.indexOf('?', start);
+  return url.substring(start, end < 0 ? url.length() : end);
+}
+
+// Headers that tell a rate limit or an outage apart from a real rejection.
+static bool interestingHeader(const String& name) {
+  String n = name;
+  n.toLowerCase();
+  return n == "date" || n == "retry-after" || n == "www-authenticate" || n == "server" ||
+         n == "content-type" || n == "cf-ray" || n == "via" || n.indexOf("ratelimit") >= 0 ||
+         n.indexOf("rate-limit") >= 0 || n.startsWith("x-");
+}
+
+// One line per request; an HTTP error also gets its headers and body start
+// (the evidence for "rate limited" vs "key rejected" vs "server broken").
+static void logResponse(const char* method, const String& url, int code, uint32_t ms,
+                        HTTPClient& h) {
+  if (code == HTTP_CODE_OK) {
+    LOGI("https", "%s 200 %s %lu ms", method, logUrl(url).c_str(), (unsigned long)ms);
+    return;
+  }
+  if (code <= 0) {
+    LOGE("https", "%s %s failed: %s (%d) after %lu ms", method, logUrl(url).c_str(),
+         HTTPClient::errorToString(code).c_str(), code, (unsigned long)ms);
+    return;
+  }
+  LOGE("https", "%s %d %s %lu ms", method, code, logUrl(url).c_str(), (unsigned long)ms);
+  String headers;
+  for (int i = 0; i < h.headers(); i++) {
+    if (!interestingHeader(h.headerName(i))) continue;
+    headers += h.headerName(i) + ": " + h.header(i) + "; ";
+  }
+  if (headers.length()) LOGE("https", "  headers: %s", headers.c_str());
+  String body = h.getString();
+  body.replace("\r", " ");
+  body.replace("\n", " ");
+  if (body.length() > 240) body = body.substring(0, 240) + "...";
+  LOGE("https", "  body (%u B): %s", (unsigned)h.getSize(), body.c_str());
 }
 
 void closeAll() {
@@ -75,7 +124,7 @@ static int request(const char* method, const String& url, Send send) {
   for (int tryNo = 0; tryNo < 2; tryNo++) {
     bool reused = tlsClient().connected();
     if (!h.begin(tlsClient(), url)) {
-      LOGE("https", "begin failed: %s", url.c_str());
+      LOGE("https", "begin failed: %s", logUrl(url).c_str());
       return HTTPC_ERROR_CONNECTION_REFUSED;
     }
     h.setUserAgent(kUserAgent);
@@ -100,18 +149,16 @@ static int request(const char* method, const String& url, Send send) {
 bool httpGetJson(const String& url, JsonDocument& doc, const JsonDocument* filter,
                  int* httpCodeOut, const char* authorization) {
   HTTPClient& h = http();
+  uint32_t t0 = millis();
   int code = request("GET", url, [&](HTTPClient& c) {
     c.addHeader("Accept", "application/json");
     if (authorization && *authorization) c.addHeader("Authorization", authorization);
     return c.GET();
   });
   if (httpCodeOut) *httpCodeOut = code;
+  logResponse("GET", url, code, millis() - t0, h);
   bool ok = false;
-  if (code == HTTP_CODE_OK) {
-    ok = parseResponse(h, doc, filter);
-  } else {
-    LOGE("https", "GET %d %s", code, url.c_str());
-  }
+  if (code == HTTP_CODE_OK) ok = parseResponse(h, doc, filter);
   h.end();  // keeps the connection open when the server allows it
   ownsConnection = tlsClient().connected();
   return ok;
@@ -120,6 +167,7 @@ bool httpGetJson(const String& url, JsonDocument& doc, const JsonDocument* filte
 bool httpPostJson(const String& url, const String& body, JsonDocument& doc,
                   const String& bearerToken, int* httpCodeOut) {
   HTTPClient& h = http();
+  uint32_t t0 = millis();
   int code = request("POST", url, [&](HTTPClient& c) {
     c.addHeader("Content-Type", "application/json");
     c.addHeader("Accept", "application/json");
@@ -127,12 +175,9 @@ bool httpPostJson(const String& url, const String& body, JsonDocument& doc,
     return c.POST(body);
   });
   if (httpCodeOut) *httpCodeOut = code;
+  logResponse("POST", url, code, millis() - t0, h);
   bool ok = false;
-  if (code == HTTP_CODE_OK) {
-    ok = parseResponse(h, doc, nullptr);
-  } else {
-    LOGE("https", "POST %d %s", code, url.c_str());
-  }
+  if (code == HTTP_CODE_OK) ok = parseResponse(h, doc, nullptr);
   h.end();
   ownsConnection = tlsClient().connected();
   return ok;

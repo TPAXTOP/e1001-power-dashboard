@@ -36,12 +36,16 @@ struct ChargeState {
   float peakV = 0;        // highest reading of the current/last charge; 0 = none seen
   float minV = 0;         // lowest reading since that charge started; 0 = none
   uint32_t endEpoch = 0;  // last wake that counted as charging; 0 = none seen
+  // No charge seen yet (fresh install or update, or flashed already full):
+  // endEpoch is the first reading instead, so the time since it is only an
+  // estimate (shown as "~3d 4h") until the next real charge.
+  bool estimated = false;
   bool charging = false;  // the latest update counted as charging
 };
 
 // Feeds one reading (volts <= 0 = unknown: ignored). Returns true when the
-// charge itself changed (started, still going, or a new peak), i.e. when
-// the state should be persisted right away.
+// charge itself changed (started, still going, or a new peak) or the
+// estimate started, i.e. when the state should be persisted right away.
 bool updateCharge(ChargeState& s, float volts, uint32_t now);
 
 // Compact duration: "45m", "1h 20m", "2h", "14h", "3d 4h", "3d", "12d". buf >= 12.

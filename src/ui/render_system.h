@@ -10,7 +10,8 @@ void renderSetup(const char* apSsid, const char* apPass, const char* ip);
 void renderMaintenance(const char* ip, const char* apSsid = nullptr,
                        const char* apPass = nullptr);
 
-// Critical battery screen shown once before button-only deep sleep.
-void renderBatteryEmpty(float vbat);
+// Critical battery screen shown once before button-only deep sleep. `ran`
+// is how long it ran since the last charge ("" = unknown).
+void renderBatteryEmpty(float vbat, const char* ran, const char* version);
 
 }  // namespace render_system

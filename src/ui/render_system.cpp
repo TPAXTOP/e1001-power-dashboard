@@ -54,12 +54,15 @@ void renderMaintenance(const char* ip, const char* apSsid, const char* apPass) {
   line(n++, "of inactivity, or via 'Save & Reboot' in the portal.");
 }
 
-void renderBatteryEmpty(float vbat) {
+void renderBatteryEmpty(float vbat, const char* ran, const char* version) {
   title("BATTERY EMPTY");
   char buf[64];
   snprintf(buf, sizeof(buf), "Battery voltage: %.2f V", vbat);
   line(0, buf);
-  line(2, "Connect USB-C power, then press any button to restart.");
+  if (ran[0]) line(1, ran);
+  snprintf(buf, sizeof(buf), "Firmware %s", version);
+  line(2, buf);
+  line(4, "Connect USB-C power, then press any button to restart.");
 }
 
 }  // namespace render_system

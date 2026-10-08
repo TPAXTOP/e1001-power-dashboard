@@ -32,7 +32,8 @@ struct PersistedState {
   // reading of the last charge, and the last wake that counted as charging.
   float chargePeakV;
   float chargeMinV;
-  uint32_t chargeEndEpoch;  // 0 = no charge seen yet
+  uint32_t chargeEndEpoch;  // 0 = no reading yet
+  bool chargeEndEstimated;  // no charge seen: chargeEndEpoch is the first reading
   uint8_t lastPage;          // 0 = power, 1 = fx
   String otaTriedVersion;  // set just before rebooting into a new image
   String otaBadVersion;    // a version that was rolled back; never retried

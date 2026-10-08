@@ -6,6 +6,7 @@
 #include <esp_sleep.h>
 
 #include "../../include/pins.h"
+#include "../store/sd_log.h"
 #include "../util/log.h"
 
 namespace power_mgmt {
@@ -105,8 +106,18 @@ void deepSleep(uint32_t seconds) {
   esp_sleep_enable_ext1_wakeup(mask, ESP_EXT1_WAKEUP_ANY_LOW);
 
   LOGI("power", "deep sleep for %lus", (unsigned long)seconds);
+  sd_log::flush();
+  sd_log::prepareSleep();
   Serial.flush();
   esp_deep_sleep_start();
+  while (true) {}  // not reached
+}
+
+void restart() {
+  LOGI("power", "restart");
+  sd_log::flush();
+  Serial.flush();
+  ESP.restart();
   while (true) {}  // not reached
 }
 

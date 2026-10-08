@@ -19,6 +19,7 @@ struct RtcState {
   uint8_t outageErr;     // why the last outage fetch failed (yasno_api::FetchError)
   uint8_t alertErr;      // why the last alert fetch failed (alert_api::FetchError)
   uint8_t alertAuthFails;  // consecutive 401/403 answers (the API also rate-limits with 401)
+  uint32_t lastAlertRequestEpoch;  // wall clock of the last alert request (SD log)
   // WiFi fast reconnect: the AP and channel of the last successful join.
   bool hasBssid;
   uint8_t bssid[6];
