@@ -9,7 +9,7 @@ namespace rtc_state {
 
 // Bump when RtcState changes: an image from an OTA restart must not read an
 // older layout (RTC RAM survives software resets).
-static const uint32_t kMagic = 0x52544302;  // "RTC" v2
+static const uint32_t kMagic = 0x52544303;  // "RTC" v3
 
 struct Stored {
   uint32_t magic;

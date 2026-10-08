@@ -12,17 +12,20 @@ namespace alert_api {
 
 static const int kMaxRegions = 3;
 static const int kMaxEntries = 12;
-// Refetch the regions at least this often even when lastActionIndex says
-// nothing changed (in case an update ever slips past the index).
-static const uint32_t kFullRefetchS = 900;
-
-static bool authFailed(int code) { return code == 401 || code == 403; }
 
 // Response (AlertRegionModel[]): [{regionId, ..., activeAlerts: [{regionId,
 // type, lastUpdate, activeAlertLevels: [{alertLevel, reason, createdAt}]}]}].
-// activeAlerts and activeAlertLevels are nullable.
-static int collect(JsonArrayConst regions, dash::AlertEntry* out, int n) {
+// activeAlerts and activeAlertLevels are nullable. ids == nullptr takes every
+// region in the response (the single-region endpoint).
+static int collect(JsonArrayConst regions, const String* ids, int idCount,
+                   dash::AlertEntry* out, int n) {
   for (JsonObjectConst region : regions) {
+    if (ids) {
+      const char* rid = region["regionId"] | "";
+      bool wanted = false;
+      for (int i = 0; i < idCount && !wanted; i++) wanted = ids[i] == rid;
+      if (!wanted) continue;
+    }
     for (JsonObjectConst alert : region["activeAlerts"].as<JsonArrayConst>()) {
       dash::AlertType type = dash::alertTypeFromString(alert["type"] | "");
       JsonArrayConst levels = alert["activeAlertLevels"].as<JsonArrayConst>();
@@ -50,43 +53,31 @@ static int collect(JsonArrayConst regions, dash::AlertEntry* out, int n) {
   return n;
 }
 
-// lastActionIndex, or -1 when the status request failed.
-static int64_t actionIndex(const Config& cfg, int& code) {
-  JsonDocument doc;
-  String url = String(DEF_ALERT_API_URL) + "/api/v3/alerts/status";
-  if (!net::httpGetJson(url, doc, nullptr, &code, cfg.alertApiKey.c_str())) return -1;
-  if (!doc["lastActionIndex"].is<int64_t>()) {
-    LOGE("alert", "status: no lastActionIndex");
-    return -1;
-  }
-  return doc["lastActionIndex"].as<int64_t>();
-}
-
-bool fetch(const Config& cfg, const AlertCache* prev, uint32_t now, AlertCache& out,
-           FetchError* error) {
+bool fetch(const Config& cfg, uint32_t now, AlertCache& out, FetchError* error) {
   if (error) *error = ERR_REQUEST;
   if (!cfg.alertApiKey.length()) {
     if (error) *error = ERR_AUTH;
     return false;
   }
 
-  int code = 0;
-  int64_t index = actionIndex(cfg, code);
-  if (authFailed(code)) {
-    if (error) *error = ERR_AUTH;
-    return false;
+  String ids[kMaxRegions];
+  int idCount = 0;
+  String list = cfg.alertRegions;
+  int from = 0;
+  while (from <= (int)list.length() && idCount < kMaxRegions) {
+    int comma = list.indexOf(',', from);
+    if (comma < 0) comma = list.length();
+    String id = list.substring(from, comma);
+    id.trim();
+    from = comma + 1;
+    if (id.length()) ids[idCount++] = id;
   }
-  if (prev && index >= 0 && prev->actionIndex == index &&
-      strcmp(prev->regions, cfg.alertRegions.c_str()) == 0 && now >= prev->fetchedEpoch &&
-      now - prev->fetchedEpoch < kFullRefetchS) {
-    out = *prev;
-    if (error) *error = ERR_NONE;
-    LOGI("alert", "unchanged (action %lld), level %u", (long long)index, out.status.level);
-    return true;
-  }
+  if (!idCount) return false;
 
   JsonDocument filter;
-  JsonObject a = filter[0]["activeAlerts"][0].to<JsonObject>();
+  JsonObject r = filter[0].to<JsonObject>();
+  r["regionId"] = true;
+  JsonObject a = r["activeAlerts"][0].to<JsonObject>();
   a["type"] = true;
   a["lastUpdate"] = true;
   JsonObject l = a["activeAlertLevels"][0].to<JsonObject>();
@@ -94,43 +85,35 @@ bool fetch(const Config& cfg, const AlertCache* prev, uint32_t now, AlertCache& 
   l["reason"] = true;
   l["createdAt"] = true;
 
-  static dash::AlertEntry entries[kMaxEntries];  // ~1.3 KB, off the stack
-  int n = 0, regions = 0;
-  String list = cfg.alertRegions;
-  int from = 0;
-  while (from <= (int)list.length() && regions < kMaxRegions) {
-    int comma = list.indexOf(',', from);
-    if (comma < 0) comma = list.length();
-    String id = list.substring(from, comma);
-    id.trim();
-    from = comma + 1;
-    if (!id.length()) continue;
-    regions++;
+  String url = String(DEF_ALERT_API_URL) + "/api/v3/alerts";
+  if (idCount == 1) url += "/" + ids[0];
 
-    JsonDocument doc;
-    String url = String(DEF_ALERT_API_URL) + "/api/v3/alerts/" + id;
-    if (!net::httpGetJson(url, doc, &filter, &code, cfg.alertApiKey.c_str())) {
-      if (error && authFailed(code)) *error = ERR_AUTH;
-      return false;
+  JsonDocument doc;
+  int code = 0;
+  if (!net::httpGetJson(url, doc, &filter, &code, cfg.alertApiKey.c_str())) {
+    if (code == 401 || code == 403) {
+      if (error) *error = ERR_AUTH;
+      LOGW("alert", "HTTP %d: key rejected, or used again within a minute", code);
     }
-    // Anything but the documented array would parse as "no alerts", i.e. a
-    // false all-clear: treat it as a failure instead.
-    if (!doc.is<JsonArrayConst>()) {
-      LOGE("alert", "region %s: unexpected response shape", id.c_str());
-      return false;
-    }
-    n = collect(doc.as<JsonArrayConst>(), entries, n);
+    return false;
   }
-  if (!regions) return false;
+  // Anything but the documented array would parse as "no alerts", i.e. a
+  // false all-clear: treat it as a failure instead.
+  if (!doc.is<JsonArrayConst>()) {
+    LOGE("alert", "unexpected response shape");
+    return false;
+  }
+
+  static dash::AlertEntry entries[kMaxEntries];  // ~1.3 KB, off the stack
+  int n = collect(doc.as<JsonArrayConst>(), idCount == 1 ? nullptr : ids, idCount, entries, 0);
 
   memset(&out, 0, sizeof(out));
   out.status = dash::pickAlert(entries, n);
-  out.actionIndex = index;
   out.fetchedEpoch = now;
   strlcpy(out.regions, cfg.alertRegions.c_str(), sizeof(out.regions));
   if (error) *error = ERR_NONE;
-  LOGI("alert", "%d region(s), %d active level(s) -> level %u type %u (action %lld)", regions, n,
-       out.status.level, out.status.type, (long long)index);
+  LOGI("alert", "%d region(s), %d active level(s) -> level %u type %u", idCount, n,
+       out.status.level, out.status.type);
   return true;
 }
 
